@@ -1,0 +1,27 @@
+<div class="live-feed-container">
+    <div class="live-feed" *ngIf="isLiveFeedEnabled">
+        <img [src]="liveFeedUrl" alt=""/>
+    </div>
+    <div class="initialize-live-feed">
+        <mat-form-field>
+            <input matInput type="text" placeholder="Serial Port" value="com4" [formControl]="serialInput">
+          </mat-form-field>
+          <mat-form-field>
+            <mat-label>Camera</mat-label>
+            <mat-select>
+              <mat-option value="1">Camera 1</mat-option>
+              <mat-option value="2">Camera 2</mat-option>
+              <mat-option value="3">Camera 3</mat-option>
+              <mat-option value="4">Camera 4</mat-option>
+            </mat-select>
+          </mat-form-field>
+        <mat-button-toggle (click)="toggleLiveFeed()">{{ isLiveFeedEnabled ? 'Stop Live Feed' : 'Start Live Feed' }}</mat-button-toggle>
+    </div>
+    <div class="controls">
+      <mat-button-toggle (click)="toggleRecording()">{{ isRecording ? 'Stop Recording' : 'Start Recording' }}</mat-button-toggle>
+      <mat-button-toggle (click)="toggleTracking()">{{ isTrackingEnabled ? 'Disable Tracking' : 'Enable Tracking' }}</mat-button-toggle>
+      <mat-button-toggle (click)="toggleAutofocus()">{{ isAutofocusEnabled ? 'Disable Autofocus' : 'Enable Autofocus' }}</mat-button-toggle>
+      <mat-button-toggle (click)="increaseMagnification()">+</mat-button-toggle>
+      <mat-button-toggle (click)="decreaseMagnification()">-</mat-button-toggle>
+    </div>
+  </div>
