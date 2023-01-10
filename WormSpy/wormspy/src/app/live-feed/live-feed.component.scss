@@ -1,47 +1,199 @@
-.live-feed-container {
+// .live-feed-container {
+//   display: flex;
+//   flex-direction: column;
+//   align-items: center;
+//   justify-content: center;
+//   position: absolute;
+//   top: 50%;
+//   left: 50%;
+//   transform: translate(-50%, -50%);
+
+//   .live-feed {
+//     width: calc(
+//       80vh - 80px
+//     ); // Subtract 80px to account for padding and margins
+//     height: calc(
+//       80vh - 80px
+//     ); // Subtract 80px to account for padding and margins
+//     border: 1px solid #ccc;
+
+//     img {
+//       width: 100%;
+//       height: 100%;
+//     }
+//   }
+
+//   .initialize-live-feed,
+//   .controls {
+//     display: flex;
+//     flex-wrap: wrap;
+//     align-items: center;
+//     justify-content: center;
+//     margin: 10px 0;
+
+//     mat-form-field,
+//     mat-button-toggle {
+//       margin: 10px;
+//       padding: 10px;
+//       // color: white;
+//       // border: 1px solid white;
+
+//       &:active,
+//       &:focus {
+//         outline: none;
+//       }
+//     }
+//   }
+// }
+h1 {
+  padding-top: 0.5%;
+  padding-left: 0.5%;
+  font-weight: 500;
+  font-size: 45px;
+  font-family: "Roboto", sans-serif;
+}
+.background {
   display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -50%);
+  flex-direction: row;
+}
 
-  .live-feed {
-    width: calc(
-      80vh - 80px
-    ); // Subtract 80px to account for padding and margins
-    height: calc(
-      80vh - 80px
-    ); // Subtract 80px to account for padding and margins
-    border: 1px solid #ccc;
+.live-feed-block {
+  width: 75%;
 
-    img {
-      width: 100%;
-      height: 100%;
+  .live-feed-container {
+    display: flex;
+    flex-direction: row;
+
+    .live-feed {
+      width: 50%;
+      height: 0;
+      padding-bottom: 50%;
+      position: relative;
+      // position: relative;
+      display: inline-block;
+      margin: 5px;
+      border: 1px solid #ccc;
+
+      img {
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+      }
     }
   }
 
-  .initialize-live-feed,
-  .controls {
+  .live-feed-settings {
+    margin: 5px;
+    padding: 10px;
+    background-color: #f5f5f5;
+    border: 1px solid #ccc;
     display: flex;
     flex-wrap: wrap;
-    align-items: center;
-    justify-content: center;
-    margin: 10px 0;
 
-    mat-form-field,
-    mat-button-toggle {
-      margin: 10px;
-      padding: 10px;
-      // color: white;
-      // border: 1px solid white;
+    .top-row-feed-settings,
+    .bottom-row-feed-settings {
+      width: 100%;
+      display: flex;
+      margin-bottom: 10px;
 
-      &:active,
-      &:focus {
-        outline: none;
+      mat-form-field {
+        width: 100%;
+
+        // mat-select {
+        //   width: 95%;
+        // }
       }
+    }
+
+    .bottom-row-feed-settings {
+      display: flex;
+
+      .bottom-row-left-feed-settings {
+        width: 50%;
+
+        input {
+          width: 100%;
+        }
+
+        .bottom-row-left-bottom-feed-settings {
+          display: flex;
+
+          mat-button-toggle {
+            width: 50%;
+            padding: 5px;
+            margin: 5px;
+            background-color: white;
+            color: #3f51b5;
+            border-color: #3f51b5;
+
+            &:active {
+              background-color: #3f51b5;
+              color: white;
+            }
+          }
+        }
+      }
+
+      mat-button-toggle {
+        width: 50%;
+        padding: 5px;
+        margin: 5px;
+        background-color: white;
+        color: #3f51b5;
+        border-color: #3f51b5;
+
+        &:active {
+          background-color: #3f51b5;
+          color: white;
+        }
+      }
+    }
+  }
+}
+.recording-settings {
+  width: 23%;
+  margin: 5px;
+  padding: 10px;
+  background-color: #f5f5f5;
+  border: 1px solid #ccc;
+  display: flex;
+  flex-wrap: wrap;
+
+  .left-camera-settings,
+  .right-camera-settings {
+    width: 100%;
+    display: flex;
+    flex-wrap: wrap;
+    margin-bottom: 10px;
+
+    div {
+      width: 100%;
+      margin-bottom: 10px;
+    }
+
+    input {
+      width: 100%;
+      padding: 5px;
+      margin: 5px;
+    }
+
+    mat-form-field {
+      width: 100%;
+    }
+  }
+  mat-button-toggle {
+    width: 100%;
+    padding: 5px;
+    margin: 5px;
+    background-color: white;
+    color: #3f51b5;
+    border-color: #3f51b5;
+
+    &:active {
+      background-color: #3f51b5;
+      color: white;
     }
   }
 }
