@@ -1,4 +1,4 @@
-from flask import Flask, request, Response, jsonify, make_response, Request
+from flask import Flask, request, Response, jsonify, make_response, json
 from flask_cors import CORS, cross_origin
 import EasyPySpin
 import cv2
@@ -47,129 +47,98 @@ MAXIMUM_DEVICE_POSITION = 1066667
 MINIMUM_DEVICE_POSITION = 0
 
 # Global Variables for recording
-is_recording = False
-out = None
+start_recording = False
+stop_recording = False
+start_recording_fl = False
+stop_recording_fl = False
+
 settings = {
     "resolution": (256, 256),
     "fps": 10,
-    "codec": "MJPG",
-    "filepath": None,
-    "filename": None
+    "filepath": 'D:\WormSpy_video\Tracking',
+    "filename": 'default.avi',
+    "resolution_fl": (1024, 1024),
+    "fps_fl": 10,
+    "filepath_fl": 'D:\WormSpy_video\Calcium',
+    "filename_fl": 'default_fluorescent'
 }
+
+# Autofocus settings
+af_enabled = False
 
 # Intial Camera Settings
 leftCam = None
 rightCam = None
-serialPort = ''
+serialPort = 'COM4'
+
+is_tracking = False
 
 @app.route("/")
 @cross_origin()
 def home():
-    return "Hello, Flask!"
+    return "Hello, Flask! Why don't you work?"
 
 @cross_origin()
 @app.route('/video_feed')
 def video_feed():
-
-  global is_recording, out, settings
-  if is_recording:
-    # Create the video writer
-    print("Recording Starting")
-    fourcc = cv2.VideoWriter_fourcc(*'I420')
-    out = cv2.VideoWriter('Tracking_Video.avi', fourcc, 10.0, (256, 256), True)
-
-    
+  global leftCam
   # Open the video capture
+  # cap = EasyPySpin.VideoCapture(2)
+  print(leftCam)
   cap = EasyPySpin.VideoCapture(leftCam)
-  
   if not cap.isOpened():
       print("Camera can't open\nexit")
       return -1
-
-  cap.set(cv2.CAP_PROP_EXPOSURE, -1)  # -1 sets exposure_time to auto
-  cap.set(cv2.CAP_PROP_GAIN, -1)  # -1 sets gain to auto
 
   dlc_proc = Processor()
   dlc_live = DLCLive('DLC_models', processor=dlc_proc, display=False)
   
   def gen():
+    global start_recording, stop_recording, settings, is_tracking, serialPort
+    is_recording = False
+    # buff = []
+    fourcc = cv2.VideoWriter_fourcc(*'MJPG')
+    out = cv2.VideoWriter()
     with Connection.open_serial_port(serialPort) as connection:
     # with Connection.open_serial_port("COM4") as connection:
         device_list = connection.detect_devices()
         firstIt = True
-        while True:
+        while (cap.isOpened()):
             # Read a frame from the video capture
             success, frame = cap.read()
-
             # Check if the frame was successfully read
             if success:
                 # Resize the image to be 256x256
                 img_show = cv2.resize(frame, None, fx=0.25, fy=0.25)
-
                 if firstIt:
                   dlc_live.init_inference(img_show)
                   firstIt = False
                 poseArr = dlc_live.get_pose(img_show)
                 posArr = poseArr[:, [0, 1]]
-                posArr =  [list( map(int, i) ) for i in posArr]
-                confArr = poseArr[:, 2]
-                # Overlay the tracking data onto the image
-                # Lien and circle attributes
-                linecolor = (0, 0, 0)
-                lineThickness = 2
-                circleThickness = -1
-                circleRadius = 2
-                
-                # Colors of the different worm parts
-                noseTipColor = (0, 0, 255)
-                pharynxColor = (0, 128, 255)
-                nerveRingColor = (0, 255, 255)
-                midbody1Color = (0, 255, 0)
-                midbody2Color = (255, 0, 0)
-                midbody3Color = (255, 0, 255)
-                tailBaseColor = (0, 0, 255)
-                tailTipColor = (255, 0, 0)
-                
-                # line from nose tip to pharynx 
-                cv2.line(img_show, posArr[0], posArr[1], linecolor, lineThickness)
-                # line from pharynx to nerve_ring
-                cv2.line(img_show, posArr[1], posArr[2], linecolor, lineThickness)
-                # line from nerve ring to midbody1
-                cv2.line(img_show, posArr[2], posArr[3], linecolor, lineThickness)
-                # line from midbody1 to midbody2
-                cv2.line(img_show, posArr[3], posArr[4], linecolor, lineThickness)
-                # line from midbody2 to midbody3
-                cv2.line(img_show, posArr[4], posArr[5], linecolor, lineThickness)
-                # line from midbody3 to tail_base
-                cv2.line(img_show, posArr[5], posArr[6], linecolor, lineThickness)
-                # line from tail_base to tail_tip
-                cv2.line(img_show, posArr[6], posArr[7], linecolor, lineThickness)
-                
-                # draw circles on top of each worm part
-                cv2.circle(img_show, posArr[0], circleRadius, noseTipColor, circleThickness)
-                cv2.circle(img_show, posArr[1], circleRadius, pharynxColor, circleThickness)
-                cv2.circle(img_show, posArr[2], circleRadius, nerveRingColor, circleThickness)
-                cv2.circle(img_show, posArr[3], circleRadius, midbody1Color, circleThickness)
-                cv2.circle(img_show, posArr[4], circleRadius, midbody2Color, circleThickness)
-                cv2.circle(img_show, posArr[5], circleRadius, midbody3Color, circleThickness)
-                cv2.circle(img_show, posArr[6], circleRadius, tailBaseColor, circleThickness)
-                cv2.circle(img_show, posArr[7], circleRadius, tailTipColor, circleThickness)
+                posArr =  [list( map(lambda x: int(abs(x)), i) ) for i in posArr]
 
-                if is_recording:
-                  out.write(img_show)
+                # frame = draw_skeleton(frame, posArr, settings["resolution"][0])
                 
-                # if tracking_enabled:
+                if start_recording:
+                  print("Start Recording")
+                  # out.open('output.avi', fourcc, 10.0, (1024,1024), isColor=False)
+                  out.open(settings["filepath"] + settings["filename"], fourcc, float(settings["fps"]), settings["resolution"], isColor=False)
+                  start_recording = False
+                  is_recording = True
+                if is_recording:
+                  # print("Recording Frame")
+                  frame = cv2.resize(frame, settings["resolution"])
+                  out.write(frame)
+                if stop_recording:
+                  print("Stopped Recording")
+                  out.release()
+                  is_recording = False
+                  stop_recording = False
                 nerveringX = poseArr[2, 0]
                 nerveringY = poseArr[2, 1]
-                # print("(", nerveringX, ',', nerveringY, ')')
-                if np.mean(confArr) > 0.5:
+                if is_tracking:
                   trackWorm((nerveringX, nerveringY), device_list)
-                # trackOut1, trackOut2 = trackWorm((nerveringX, nerveringY), device_list)
-                # if trackOut1 == 0 and trackOut2 == 0:
-                #     print("Worm tracking failed or worm isn't moving")
-                # Encode the frame in JPEG format
-                ret, jpeg = cv2.imencode('.jpg', img_show)
-                
+                ret, jpeg = cv2.imencode('.jpg', frame)
                 # Yield the encoded frame
                 yield (b'--frame\r\n'
                     b'Content-Type: image/jpeg\r\n\r\n' + jpeg.tobytes() + b'\r\n')
@@ -177,41 +146,88 @@ def video_feed():
                 # If the frame was not successfully read, yield a blank frame
                 yield (b'--frame\r\n'
                     b'Content-Type: image/jpeg\r\n\r\n\r\n')
-  # Release the video capture
-  cap.release()
+  # Return the video feed as a multipart/x-mixed-replace response
+  return Response(gen(), mimetype='multipart/x-mixed-replace; boundary=frame')
+
+@cross_origin()
+@app.route('/video_feed_fluorescent')
+def video_feed_fluorescent():
+  global rightCam
+  # Open the video capture
+  # cap = EasyPySpin.VideoCapture(2)
+  cap = EasyPySpin.VideoCapture(rightCam)
+  if not cap.isOpened():
+      print("Camera can't open\nexit")
+      return -1
+  
+  def gen():
+    global start_recording_fl, stop_recording_fl, settings, is_tracking, serialPort
+    is_recording = False
+    # buff = []
+    fourcc = cv2.VideoWriter_fourcc(*'MJPG')
+    out = cv2.VideoWriter()
+    while (cap.isOpened()):
+        # Read a frame from the video capture
+        success, frame = cap.read()
+        # Check if the frame was successfully read
+        if success:
+            if start_recording_fl:
+              print("Start Fluorescent Recording")
+              # out.open('output.avi', fourcc, 10.0, (1024,1024), isColor=False)
+              out.open(settings["filepath_fl"] + settings["filename_fl"], fourcc, float(settings["fps_fl"]), settings["resolution_fl"], isColor=False)
+              start_recording_fl = False
+              is_recording = True
+            if is_recording:
+              # print("Recording Frame")
+              frame = cv2.resize(frame, settings["resolution_fl"])
+              out.write(frame)
+            if stop_recording_fl:
+              print("Stopped Fluorescent Recording")
+              out.release()
+              is_recording = False
+              stop_recording_fl = False
+            
+            ret, jpeg = cv2.imencode('.jpg', frame)
+            # Yield the encoded frame
+            yield (b'--frame\r\n'
+                b'Content-Type: image/jpeg\r\n\r\n' + jpeg.tobytes() + b'\r\n')
+        else:
+            # If the frame was not successfully read, yield a blank frame
+            yield (b'--frame\r\n'
+                b'Content-Type: image/jpeg\r\n\r\n\r\n')
   # Return the video feed as a multipart/x-mixed-replace response
   return Response(gen(), mimetype='multipart/x-mixed-replace; boundary=frame')
 
 @cross_origin()
 @app.route("/start_recording", methods=['POST'])
 def start_recording():
-    global is_recording, settings
-
+    global start_recording, start_recording_fl, settings
     # Update the settings with the data from the request body
-    # settings["filepath"] = request.json["filepath"]
-    # settings["filename"] = request.json["filename"]
-    data = request.json_module
+    settings["filepath"] = request.json["filepath"]
+    settings["filename"] = request.json["filename"]
+    settings["fps"] = request.json["fps"]
+    settings["resolution"] = (request.json["resolution"], request.json["resolution"])
+    settings["filepath_fl"] = request.json["filepath_fl"]
+    settings["filename_fl"] = request.json["filename_fl"]
+    settings["fps_fl"] = request.json["fps_fl"]
+    settings["resolution_fl"] = (request.json["resolution_fl"], request.json["resolution_fl"])
     # Set the recording flag to True
-    is_recording = True
-    # print(data)
+    start_recording = True
+    start_recording_fl = True
     # return jsonify({"message": "Recording started"})
-    return jsonify(data)
+    return str(settings)
 
 
 @cross_origin()
 @app.route("/stop_recording", methods=['POST'])
 def stop_recording():
-    global is_recording, out
+    global stop_recording, stop_recording_fl
     # Release the video writer and set the recording flag to False
-    out.release()
-    is_recording = False
+    stop_recording = True
+    stop_recording_fl = True
     # Attempt at fixing CORS error
     return jsonify({"message": "Recording stopped"})
-    # response = make_response(jsonify({"message": "Recording stopped"}))
-    # response.headers["Access-Control-Allow-Origin"] = "http://localhost:4200"
-    # response.headers["Access-Control-Allow-Methods"] = "POST"
-    # response.headers["Access-Control-Allow-Headers"] = "Content-Type"
-    # return response
+
 
 @cross_origin()
 @app.route("/camera_settings", methods=['POST'])
@@ -224,6 +240,30 @@ def camera_settings():
     
     # Attempt at fixing CORS error
     return jsonify({"message": "Recording stopped"})
+
+
+@cross_origin()
+@app.route("/toggle_tracking", methods=['POST'])
+def toggle_tracking():
+    global is_tracking
+    is_tracking = request.json['is_tracking'] == "True"
+    return str(is_tracking)
+
+
+@cross_origin()
+@app.route("/toggle_af", methods=['POST'])
+def toggle_af():
+    global af_enabled
+    af_enabled = request.json['af_enabled'] == "True"
+    return str(af_enabled)
+
+
+def autofocus(image, threshold=20):
+    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+    sobelx = cv2.Sobel(gray, cv2.CV_64F, 1, 0, ksize=3)
+    abs_sobelx = cv2.convertScaleAbs(sobelx)
+    focus_measure = cv2.Laplacian(abs_sobelx, cv2.CV_64F).var()
+    return focus_measure > threshold
 
 def simpleToCenter(centroidX, centroidY):
   # calculate the percent the position is from the edge of the frame
@@ -251,46 +291,89 @@ def trackWorm(input, device_list):
 
 	# create master list value that will contain [command move x, command move y, relative worm position x, relative worm position y]
 	# relative worm position is relative to the (0, 0) of the video feed
-  master = [0, 0, 0, 0]
-  
-	# set master to the correct values
-  if TRACKING_MODE == "simpleToCenter":
-    master = simpleToCenter(inpX, inpY)
-  else:
-    print("[EERR] Unknown movement type provided.")
-    return 0, 0
+  # master = [0, 0, 0, 0]
+  master = simpleToCenter(inpX, inpY)
 
 	# convert the millimeters back to microsteps
   xCmdAmt = master[0] * MM_MST
   yCmdAmt = master[1] * MM_MST
 
-  # get devices from connection
-  
-	#send the commands
-  if CONNECTED_TO_ZABER:
-    deviceX: device = device_list[0]
-    deviceY: device = device_list[1]
-    deviceXPos = deviceX.get_position(unit = Units.NATIVE)
-    deviceYPos = deviceY.get_position(unit = Units.NATIVE)
-    if (deviceXPos + xCmdAmt/10 < MAXIMUM_DEVICE_POSITION 
-        or deviceXPos + xCmdAmt/10 > MINIMUM_DEVICE_POSITION
-        or deviceYPos + xCmdAmt/10 < MAXIMUM_DEVICE_POSITION 
-        or deviceYPos + xCmdAmt/10 > MINIMUM_DEVICE_POSITION):
-      deviceX.move_relative(xCmdAmt/10, Units.NATIVE)
-      deviceY.move_relative(yCmdAmt/10, Units.NATIVE)
-    else:
-      print("Reached maximum motor position bounds")
-	# write the report to the console
-  if LOG_SENT_COMMANDS and False:
-    print(str(PRE_CODE) + "Sent " + str(round(millis[0], SENT_COMMAND_PRECISION)) + " & " + str(round(millis[1], SENT_COMMAND_PRECISION)))
-	# return the absolute position of the worm (where 0, 0 is zaber's 0, 0)
-  # if CONNECTED_TO_ZABER:
-  #   # return calculateWormPosition(master[2], master[3])
-  # else:
+  # determine device from list
+  deviceX: device = device_list[0]
+  deviceY: device = device_list[1]
+
+  # get current device location
+  deviceXPos = deviceX.get_position(unit = Units.NATIVE)
+  deviceYPos = deviceY.get_position(unit = Units.NATIVE)
+
+  # move device if the bounds of the device are not exceeded
+  if (deviceXPos + xCmdAmt/10 < MAXIMUM_DEVICE_POSITION 
+      or deviceXPos + xCmdAmt/10 > MINIMUM_DEVICE_POSITION
+      or deviceYPos + xCmdAmt/10 < MAXIMUM_DEVICE_POSITION 
+      or deviceYPos + xCmdAmt/10 > MINIMUM_DEVICE_POSITION):
+    deviceX.move_relative(xCmdAmt/10, Units.NATIVE)
+    deviceY.move_relative(yCmdAmt/10, Units.NATIVE)
   return 0, 0
+    
+	
+
+
+def save_video(buff): 
+  fourcc = cv2.VideoWriter_fourcc(*'XVID')
+  out = cv2.VideoWriter('WebCam.avi',fourcc, 10.0, (256, 256))
+  for i, frame in enumerate(buff):
+    out.write(frame)
+  out.release()
+  
+def draw_skeleton(frame, posArr, resolution):
+  factor = resolution / 256
+  posArr = map((lambda x: x * factor), posArr)
+  # Line and circle attributes
+  linecolor = (0, 0, 0)
+  lineThickness = 2
+  circleThickness = -1
+  circleRadius = 2
+  
+  # Colors of the different worm parts
+  noseTipColor = (0, 0, 255)
+  pharynxColor = (0, 128, 255)
+  nerveRingColor = (0, 255, 255)
+  midbody1Color = (0, 255, 0)
+  midbody2Color = (255, 0, 0)
+  midbody3Color = (255, 0, 255)
+  tailBaseColor = (0, 0, 255)
+  tailTipColor = (255, 0, 0)
+  # confArr = poseArr[:, 2]
+  # Overlay the tracking data onto the image
+  # line from nose tip to pharynx 
+  cv2.line(frame, posArr[0], posArr[1], linecolor, lineThickness)
+  # line from pharynx to nerve_ring
+  cv2.line(frame, posArr[1], posArr[2], linecolor, lineThickness)
+  # line from nerve ring to midbody1
+  cv2.line(frame, posArr[2], posArr[3], linecolor, lineThickness)
+  # line from midbody1 to midbody2
+  cv2.line(frame, posArr[3], posArr[4], linecolor, lineThickness)
+  # line from midbody2 to midbody3
+  cv2.line(frame, posArr[4], posArr[5], linecolor, lineThickness)
+  # line from midbody3 to tail_base
+  cv2.line(frame, posArr[5], posArr[6], linecolor, lineThickness)
+  # line from tail_base to tail_tip
+  cv2.line(frame, posArr[6], posArr[7], linecolor, lineThickness)
+  
+  # draw circles on top of each worm part
+  cv2.circle(frame, posArr[0], circleRadius, noseTipColor, circleThickness)
+  cv2.circle(frame, posArr[1], circleRadius, pharynxColor, circleThickness)
+  cv2.circle(frame, posArr[2], circleRadius, nerveRingColor, circleThickness)
+  cv2.circle(frame, posArr[3], circleRadius, midbody1Color, circleThickness)
+  cv2.circle(frame, posArr[4], circleRadius, midbody2Color, circleThickness)
+  cv2.circle(frame, posArr[5], circleRadius, midbody3Color, circleThickness)
+  cv2.circle(frame, posArr[6], circleRadius, tailBaseColor, circleThickness)
+  cv2.circle(frame, posArr[7], circleRadius, tailTipColor, circleThickness)
+
+  return frame
 
 
 if __name__ == "__main__":
-    app.run(host='127.0.0.1', port=5000, debug=True)
+    app.run(host='127.0.0.1', port=5000, debug=True, threaded=True)
 
        

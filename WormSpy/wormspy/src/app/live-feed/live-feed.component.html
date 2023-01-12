@@ -43,7 +43,7 @@
       <div class="top-row-feed-settings">
         <mat-form-field>
           <mat-label>Select Left Camera </mat-label>
-          <mat-select [(value)]="leftCamera">
+          <mat-select [(value)]="leftCamera" [disabled]="isLiveFeedEnabled">
             <mat-option value="1">Camera 1</mat-option>
             <mat-option value="2">Camera 2</mat-option>
             <mat-option value="3">Camera 3</mat-option>
@@ -52,7 +52,7 @@
         </mat-form-field>
         <mat-form-field>
           <mat-label>Select Right Camera </mat-label>
-          <mat-select [(value)]="rightCamera">
+          <mat-select [(value)]="rightCamera" [disabled]="isLiveFeedEnabled">
             <mat-option value="1">Camera 1</mat-option>
             <mat-option value="2">Camera 2</mat-option>
             <mat-option value="3">Camera 3</mat-option>
@@ -69,6 +69,7 @@
               type="text"
               value="com4"
               [formControl]="serialInput"
+              [disabled]="isLiveFeedEnabled"
             />
           </mat-form-field>
           <div class="bottom-row-left-bottom-feed-settings">
@@ -96,21 +97,21 @@
           id="folder"
           multiple
           webkitdirectory
-          (change)="selectDirectory(directory.files)"
+          (change)="selectDirectoryLeft(directory.files)"
           #directory
         />
       </div>
       <mat-form-field class="example-full-width">
         <mat-label>Filename</mat-label>
-        <input matInput type="text" placeholder="filename" value="Tracking_Video.avi" />
+        <input matInput type="text" placeholder="filename" [formControl]="leftFilename"/>
       </mat-form-field>
       <mat-form-field class="example-full-width">
         <mat-label>FPS</mat-label>
-        <input matInput type="number" placeholder="FPS" value="10" />
+        <input matInput type="number" placeholder="FPS"  [formControl]="leftFPS"/>
       </mat-form-field>
       <mat-form-field class="example-full-width">
         <mat-label>Resolution</mat-label>
-        <input matInput type="number" placeholder="Resolution" value="1024" />
+        <input matInput type="number" placeholder="Resolution" [formControl]="leftResolution"/>
       </mat-form-field>
     </div>
     <div class="right-camera-settings">
@@ -122,21 +123,21 @@
           id="folder"
           multiple
           webkitdirectory
-          (change)="selectDirectory(directory.files)"
+          (change)="selectDirectoryRight(directory.files)"
           #directory
         />
       </div>
       <mat-form-field class="example-full-width">
         <mat-label>Filename</mat-label>
-        <input matInput type="text" placeholder="filename" value="Tracking_Video_Fluorescent.avi" />
+        <input matInput type="text" placeholder="filename" [formControl]="rightFilename"/>
       </mat-form-field>
       <mat-form-field class="example-full-width">
         <mat-label>FPS</mat-label>
-        <input matInput type="number" placeholder="FPS" value="10" />
+        <input matInput type="number" placeholder="FPS" [formControl]="rightFPS"/>
       </mat-form-field>
       <mat-form-field class="example-full-width">
         <mat-label>Resolution</mat-label>
-        <input matInput type="number" placeholder="Resolution" value="256" />
+        <input matInput type="number" placeholder="Resolution"  [formControl]="leftResolution"/>
       </mat-form-field>
     </div>
     <mat-button-toggle id="recordButton" (click)="toggleRecording()">{{
