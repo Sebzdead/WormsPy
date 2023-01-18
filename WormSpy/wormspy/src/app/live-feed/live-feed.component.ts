@@ -29,11 +29,11 @@ export class LiveFeedComponent implements OnInit {
 
   private recordingSettings = {
     filepath: 'D:\\WormSpy_video\\Tracking\\',
-    filename: 'Tracking_Video.avi',
+    filename: 'Tracking_Video',
     resolution: 256,
     fps: 10.0,
     filepath_fl: 'D:\\WormSpy_video\\Calcium',
-    filename_fl: 'Tracking_Video_Fluorescent.avi',
+    filename_fl: 'Tracking_Video_Fluorescent',
     resolution_fl: 1024,
     fps_fl: 10.0,
   };
@@ -46,12 +46,12 @@ export class LiveFeedComponent implements OnInit {
   rightCamera = '2';
 
   // left recording settings
-  leftFilename = new FormControl('Tracking_Video.avi');
+  leftFilename = new FormControl('Tracking_Video');
   leftFPS = new FormControl(10.0);
   leftResolution = new FormControl(1024);
 
   // right recording settings
-  rightFilename = new FormControl('Tracking_Video_Fluorescent.avi');
+  rightFilename = new FormControl('Tracking_Video_Fluorescent');
   rightFPS = new FormControl(10.0);
   rightResolution = new FormControl(1024);
 

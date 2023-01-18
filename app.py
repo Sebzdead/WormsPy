@@ -5,8 +5,9 @@ import cv2
 from dlclive import DLCLive, Processor
 import math
 from zaber_motion import Library, Units
-from zaber_motion.binary import Connection, device
+from zaber_motion.binary import Connection, Device
 import numpy as np
+import pytz
 from datetime import datetime
 import os
 
@@ -45,7 +46,8 @@ MM_MST = 20997  # millimeters per microstep
 MM_TOT = 50.8  # total millimeters that the zaber can extend
 
 # Zaber device boundaries
-MAXIMUM_DEVICE_POSITION = 1066667
+MAXIMUM_DEVICE_XY_POSITION = 1066667
+MAXIMUM_DEVICE_Z_POSITION = 209974
 MINIMUM_DEVICE_POSITION = 0
 
 # DLC Live Settings
@@ -56,7 +58,7 @@ start_recording = False
 stop_recording = False
 start_recording_fl = False
 stop_recording_fl = False
-
+timeZone = pytz.timezone("US/Eastern")
 settings = {
     "resolution": (256, 256),
     "fps": 10,
@@ -127,9 +129,9 @@ def video_feed():
                   confArr = poseArr[:, [2]]
                   if start_recording:
                     print("Start Recording")
-                    dt = datetime.now()
-                    dtstr = '_' + dt.strftime("%d-%m-%Y_%H-%M-%S") 
-                    out.open(settings["filepath"] + settings["filename"] + dtstr, fourcc, settings["fps"], settings["resolution"], isColor=False)
+                    dt = datetime.now(tz=timeZone)
+                    dtstr = '_' + dt.strftime("%d-%m-%Y_%H-%M-%S")
+                    out.open(settings["filepath"] + settings["filename"] + dtstr + '.avi', fourcc, settings["fps"], settings["resolution"], isColor=False)
                     start_recording = False
                     is_recording = True
                     poseDump = np.empty(shape=(0,3))
@@ -150,14 +152,13 @@ def video_feed():
                     stop_recording = False
                   if af_enabled:
                     focus = determineFocus(cv2.cvtColor(frame, cv2.COLOR_RGB2BGR))
+                    mPos = zMotor.get_position(unit = Units.NATIVE)
                     afRollingAvg.append(focus)
-                    afMotorPos.append(zMotor.get_position())
+                    afMotorPos.append(mPos)
                     if len(afRollingAvg) > 10:
                       afRollingAvg.pop(0)
                       afMotorPos.pop(0) # 100 Microsteps seems to be a good sweet spot
-                    # if focus > np.mean(afRollingAvg):
-                      
-                    #   print(focus)
+                    setFocus(zMotor, focus, mPos, afRollingAvg, afMotorPos)
 
                   factor = cap.get(3) / (cap.get(3) * SCALE_FACTOR)
                   posArr =  [tuple(map(lambda x: int(abs(x) * factor), i) ) for i in posArr]
@@ -209,9 +210,9 @@ def video_feed_fluorescent():
               start_recording_fl = False
               is_recording = True
               frame_count = 0
-              dt = datetime.now()
+              dt = datetime.now(tz=timeZone)
               dtstr = dt.strftime("%d-%m-%Y_%H-%M-%S")
-              folder_name = settings["filename_fl"] + dtstr
+              folder_name = settings["filename_fl"] + '_' + dtstr
               path = os.path.join(settings["filepath_fl"], folder_name)
               os.mkdir(path)
             if is_recording:
@@ -305,6 +306,24 @@ def determineFocus(image):
     focus_measure = cv2.Laplacian(abs_sobelx, cv2.CV_64F).var()
     return focus_measure
 
+def setFocus(zMotor: Device, focus, mPos, afRollingAvg, afMotorPos):
+  if len(afRollingAvg) > 1: #  and focus < np.mean(afRollingAvg)
+    mPosDiff = afMotorPos[-1] - afMotorPos[-2]
+    # current focus is worse than previous focus
+    if afRollingAvg[-1] < afRollingAvg[-2]:
+      # move towards previous position
+      if mPosDiff > 0 and mPos + 100 < MAXIMUM_DEVICE_Z_POSITION: 
+        zMotor.move_relative(100, Units.NATIVE)
+      elif mPosDiff < 0 and mPosDiff - 100 > MINIMUM_DEVICE_POSITION:
+        zMotor.move_relative(-100, Units.NATIVE)
+    # current focus is better than previous focus
+    elif afRollingAvg[-1] > afRollingAvg[-2]: 
+      # continue current movement direction
+      if mPosDiff < 0 and mPos + 100 < MAXIMUM_DEVICE_Z_POSITION: 
+        zMotor.move_relative(100, Units.NATIVE)
+      elif mPosDiff > 0 and mPosDiff - 100 > MINIMUM_DEVICE_POSITION:
+        zMotor.move_relative(-100, Units.NATIVE)
+
 def simpleToCenter(centroidX, centroidY):
   # calculate the percent the position is from the edge of the frame
   percentX = float(centroidX) / float(TOTAL_PIXELS_X)
@@ -339,17 +358,17 @@ def trackWorm(input, device_list):
   yCmdAmt = master[1] * MM_MST
 
   # determine device from list
-  deviceX: device = device_list[0]
-  deviceY: device = device_list[1]
+  deviceX: Device = device_list[0]
+  deviceY: Device = device_list[1]
 
   # get current device location
   deviceXPos = deviceX.get_position(unit = Units.NATIVE)
   deviceYPos = deviceY.get_position(unit = Units.NATIVE)
 
   # move device if the bounds of the device are not exceeded
-  if (deviceXPos + xCmdAmt/10 < MAXIMUM_DEVICE_POSITION 
+  if (deviceXPos + xCmdAmt/10 < MAXIMUM_DEVICE_XY_POSITION 
       or deviceXPos + xCmdAmt/10 > MINIMUM_DEVICE_POSITION
-      or deviceYPos + xCmdAmt/10 < MAXIMUM_DEVICE_POSITION 
+      or deviceYPos + xCmdAmt/10 < MAXIMUM_DEVICE_XY_POSITION 
       or deviceYPos + xCmdAmt/10 > MINIMUM_DEVICE_POSITION):
     deviceX.move_relative(xCmdAmt/10, Units.NATIVE)
     deviceY.move_relative(yCmdAmt/10, Units.NATIVE)
