@@ -1,4 +1,4 @@
-from flask import Flask, request, Response, jsonify, make_response, json
+from flask import Flask, request, Response, jsonify
 from flask_cors import CORS, cross_origin
 import EasyPySpin
 import cv2
@@ -7,6 +7,8 @@ import math
 from zaber_motion import Library, Units
 from zaber_motion.binary import Connection, device
 import numpy as np
+from datetime import datetime
+import os
 
 app = Flask(__name__)
 CORS(app, origins=['http://localhost:4200'])
@@ -45,6 +47,9 @@ MM_TOT = 50.8  # total millimeters that the zaber can extend
 # Zaber device boundaries
 MAXIMUM_DEVICE_POSITION = 1066667
 MINIMUM_DEVICE_POSITION = 0
+
+# DLC Live Settings
+SCALE_FACTOR = 0.25
 
 # Global Variables for recording
 start_recording = False
@@ -94,58 +99,84 @@ def video_feed():
   dlc_live = DLCLive('DLC_models', processor=dlc_proc, display=False)
   
   def gen():
-    global start_recording, stop_recording, settings, is_tracking, serialPort
+    global start_recording, stop_recording, settings, is_tracking, serialPort, af_enabled
     is_recording = False
-    # buff = []
     fourcc = cv2.VideoWriter_fourcc(*'MJPG')
     out = cv2.VideoWriter()
+    afRollingAvg = [] 
+    afMotorPos = []
     with Connection.open_serial_port(serialPort) as connection:
-    # with Connection.open_serial_port("COM4") as connection:
-        device_list = connection.detect_devices()
-        firstIt = True
-        while (cap.isOpened()):
-            # Read a frame from the video capture
-            success, frame = cap.read()
-            # Check if the frame was successfully read
-            if success:
-                # Resize the image to be 256x256
-                img_show = cv2.resize(frame, None, fx=0.25, fy=0.25)
-                if firstIt:
-                  dlc_live.init_inference(img_show)
-                  firstIt = False
-                poseArr = dlc_live.get_pose(img_show)
-                posArr = poseArr[:, [0, 1]]
-                posArr =  [list( map(lambda x: int(abs(x)), i) ) for i in posArr]
+        with Connection.open_serial_port("COM3") as connection2:
+          device_listXY = connection.detect_devices()
+          device_listZ = connection2.detect_devices()
+          zMotor = device_listZ[0]
+          # device_list[0].
+          firstIt = True
+          while (cap.isOpened()):
+              # Read a frame from the video capture
+              success, frame = cap.read()
+              # Check if the frame was successfully read
+              if success:
+                  # Resize the image to be 256x256
+                  img_dlc = cv2.resize(frame, None, fx=SCALE_FACTOR, fy=SCALE_FACTOR)
+                  if firstIt:
+                    dlc_live.init_inference(img_dlc)
+                    firstIt = False
+                  poseArr = dlc_live.get_pose(img_dlc)
+                  posArr = poseArr[:, [0, 1]]
+                  confArr = poseArr[:, [2]]
+                  if start_recording:
+                    print("Start Recording")
+                    dt = datetime.now()
+                    dtstr = '_' + dt.strftime("%d-%m-%Y_%H-%M-%S") 
+                    out.open(settings["filepath"] + settings["filename"] + dtstr, fourcc, settings["fps"], settings["resolution"], isColor=False)
+                    start_recording = False
+                    is_recording = True
+                    poseDump = np.empty(shape=(0,3))
+                  if is_recording:
+                    factor2 = cap.get(3) / (cap.get(3) * SCALE_FACTOR)
+                    posArr2 =  [tuple(map(lambda x: int(abs(x) * factor2), i) ) for i in posArr]
+                    posArr2 = np.append(posArr2, confArr, axis=1)
+                    poseDump = np.append(poseDump, posArr2, axis=0)
+                    im_out = cv2.resize(frame, settings["resolution"])
+                    out.write(im_out)
+                  if stop_recording:
+                    print("Stopped Recording")
+                    out.release()
+                    dt = datetime.now()
+                    dtstr = '_' + dt.strftime("%d-%m-%Y_%H-%M-%S")
+                    np.savetxt(settings["filepath"] + settings["filename"]+ dtstr +".csv", poseDump, delimiter=",")
+                    is_recording = False
+                    stop_recording = False
+                  if af_enabled:
+                    focus = determineFocus(cv2.cvtColor(frame, cv2.COLOR_RGB2BGR))
+                    afRollingAvg.append(focus)
+                    afMotorPos.append(zMotor.get_position())
+                    if len(afRollingAvg) > 10:
+                      afRollingAvg.pop(0)
+                      afMotorPos.pop(0) # 100 Microsteps seems to be a good sweet spot
+                    # if focus > np.mean(afRollingAvg):
+                      
+                    #   print(focus)
 
-                # frame = draw_skeleton(frame, posArr, settings["resolution"][0])
-                
-                if start_recording:
-                  print("Start Recording")
-                  # out.open('output.avi', fourcc, 10.0, (1024,1024), isColor=False)
-                  out.open(settings["filepath"] + settings["filename"], fourcc, float(settings["fps"]), settings["resolution"], isColor=False)
-                  start_recording = False
-                  is_recording = True
-                if is_recording:
-                  # print("Recording Frame")
-                  frame = cv2.resize(frame, settings["resolution"])
-                  out.write(frame)
-                if stop_recording:
-                  print("Stopped Recording")
-                  out.release()
-                  is_recording = False
-                  stop_recording = False
-                nerveringX = poseArr[2, 0]
-                nerveringY = poseArr[2, 1]
-                if is_tracking:
-                  trackWorm((nerveringX, nerveringY), device_list)
-                ret, jpeg = cv2.imencode('.jpg', frame)
-                # Yield the encoded frame
-                yield (b'--frame\r\n'
-                    b'Content-Type: image/jpeg\r\n\r\n' + jpeg.tobytes() + b'\r\n')
-            else:
-                # If the frame was not successfully read, yield a blank frame
-                yield (b'--frame\r\n'
-                    b'Content-Type: image/jpeg\r\n\r\n\r\n')
+                  factor = cap.get(3) / (cap.get(3) * SCALE_FACTOR)
+                  posArr =  [tuple(map(lambda x: int(abs(x) * factor), i) ) for i in posArr]
+                  frame = cv2.cvtColor(frame, cv2.COLOR_GRAY2RGB)
+                  frame = draw_skeleton(frame, posArr)
+
+                  nerveringX = poseArr[0, 0]
+                  nerveringY = poseArr[0, 1]
+                  if is_tracking:
+                    trackWorm((nerveringX, nerveringY), device_listXY)
+                    
+                  ret, jpeg = cv2.imencode('.jpg', frame)
+                  # Yield the encoded frame
+                  yield (b'--frame\r\n'
+                      b'Content-Type: image/jpeg\r\n\r\n' + jpeg.tobytes() + b'\r\n')
+              else:
+                  # If the frame was not successfully read, yield a blank frame
+                  yield (b'--frame\r\n'
+                      b'Content-Type: image/jpeg\r\n\r\n\r\n')
   # Return the video feed as a multipart/x-mixed-replace response
   return Response(gen(), mimetype='multipart/x-mixed-replace; boundary=frame')
 
@@ -164,8 +195,8 @@ def video_feed_fluorescent():
     global start_recording_fl, stop_recording_fl, settings, is_tracking, serialPort
     is_recording = False
     # buff = []
-    fourcc = cv2.VideoWriter_fourcc(*'MJPG')
-    out = cv2.VideoWriter()
+    # fourcc = cv2.VideoWriter_fourcc(*'MJPG')
+    # out = cv2.VideoWriter()
     while (cap.isOpened()):
         # Read a frame from the video capture
         success, frame = cap.read()
@@ -174,16 +205,25 @@ def video_feed_fluorescent():
             if start_recording_fl:
               print("Start Fluorescent Recording")
               # out.open('output.avi', fourcc, 10.0, (1024,1024), isColor=False)
-              out.open(settings["filepath_fl"] + settings["filename_fl"], fourcc, float(settings["fps_fl"]), settings["resolution_fl"], isColor=False)
+              # out.open(settings["filepath_fl"] + settings["filename_fl"], fourcc, float(settings["fps_fl"]), settings["resolution_fl"], isColor=False)
               start_recording_fl = False
               is_recording = True
+              frame_count = 0
+              dt = datetime.now()
+              dtstr = dt.strftime("%d-%m-%Y_%H-%M-%S")
+              folder_name = settings["filename_fl"] + dtstr
+              path = os.path.join(settings["filepath_fl"], folder_name)
+              os.mkdir(path)
             if is_recording:
               # print("Recording Frame")
+              # frame = cv2.resize(frame, settings["resolution_fl"])
+              # out.write(frame)
+              frame_count += 1
               frame = cv2.resize(frame, settings["resolution_fl"])
-              out.write(frame)
+              cv2.imwrite(f"{settings['filepath_fl']}\\{folder_name}\\frame_{frame_count}.tiff", frame)
             if stop_recording_fl:
               print("Stopped Fluorescent Recording")
-              out.release()
+              # out.release()
               is_recording = False
               stop_recording_fl = False
             
@@ -258,12 +298,12 @@ def toggle_af():
     return str(af_enabled)
 
 
-def autofocus(image, threshold=20):
+def determineFocus(image):
     gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
     sobelx = cv2.Sobel(gray, cv2.CV_64F, 1, 0, ksize=3)
     abs_sobelx = cv2.convertScaleAbs(sobelx)
     focus_measure = cv2.Laplacian(abs_sobelx, cv2.CV_64F).var()
-    return focus_measure > threshold
+    return focus_measure
 
 def simpleToCenter(centroidX, centroidY):
   # calculate the percent the position is from the edge of the frame
@@ -314,25 +354,20 @@ def trackWorm(input, device_list):
     deviceX.move_relative(xCmdAmt/10, Units.NATIVE)
     deviceY.move_relative(yCmdAmt/10, Units.NATIVE)
   return 0, 0
-    
-	
 
-
-def save_video(buff): 
-  fourcc = cv2.VideoWriter_fourcc(*'XVID')
-  out = cv2.VideoWriter('WebCam.avi',fourcc, 10.0, (256, 256))
+def save_video(buff): # what does this function do???
+  fourcc = cv2.VideoWriter_fourcc(*'MJPG')
+  out = cv2.VideoWriter('WebCam.avi',fourcc, 10, (256, 256))
   for i, frame in enumerate(buff):
     out.write(frame)
   out.release()
   
-def draw_skeleton(frame, posArr, resolution):
-  factor = resolution / 256
-  posArr = map((lambda x: x * factor), posArr)
+def draw_skeleton(frame, posArr):
   # Line and circle attributes
   linecolor = (0, 0, 0)
   lineThickness = 2
   circleThickness = -1
-  circleRadius = 2
+  circleRadius = 5
   
   # Colors of the different worm parts
   noseTipColor = (0, 0, 255)
@@ -372,8 +407,5 @@ def draw_skeleton(frame, posArr, resolution):
 
   return frame
 
-
 if __name__ == "__main__":
     app.run(host='127.0.0.1', port=5000, debug=True, threaded=True)
-
-       

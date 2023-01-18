@@ -31,24 +31,24 @@ export class LiveFeedComponent implements OnInit {
     filepath: 'D:\\WormSpy_video\\Tracking\\',
     filename: 'Tracking_Video.avi',
     resolution: 256,
-    fps: 10,
-    filepath_fl: 'D:\\WormSpy_video\\Calcium\\',
+    fps: 10.0,
+    filepath_fl: 'D:\\WormSpy_video\\Calcium',
     filename_fl: 'Tracking_Video_Fluorescent.avi',
-    resolution_fl: 256,
-    fps_fl: 10,
+    resolution_fl: 1024,
+    fps_fl: 10.0,
   };
 
   // Serial Port
   serialInput = new FormControl('COM4');
 
   // Camera selection
-  leftCamera = '3';
-  rightCamera = '4';
+  leftCamera = '1';
+  rightCamera = '2';
 
   // left recording settings
   leftFilename = new FormControl('Tracking_Video.avi');
   leftFPS = new FormControl(10.0);
-  leftResolution = new FormControl(256);
+  leftResolution = new FormControl(1024);
 
   // right recording settings
   rightFilename = new FormControl('Tracking_Video_Fluorescent.avi');
@@ -131,11 +131,11 @@ export class LiveFeedComponent implements OnInit {
     this.isTrackingEnabled = !this.isTrackingEnabled;
     if (this.isTrackingEnabled) {
       this.http
-        .post(this.apiUrl + '/toggle_tracking', { af_enabled: 'True' })
+        .post(this.apiUrl + '/toggle_tracking', { is_tracking: 'True' })
         .subscribe((data) => {});
     } else {
       this.http
-        .post(this.apiUrl + '/toggle_tracking', { af_enabled: 'False' })
+        .post(this.apiUrl + '/toggle_tracking', { is_tracking: 'False' })
         .subscribe((data) => {});
     }
   }
@@ -143,7 +143,15 @@ export class LiveFeedComponent implements OnInit {
   // Method to enable or disable autofocus in the live feed
   public toggleAutofocus(): void {
     this.isAutofocusEnabled = !this.isAutofocusEnabled;
-    // this.http.post(this.liveFeedUrlNormal, {autofocus: this.isAutofocusEnabled})
+    if (this.isAutofocusEnabled) {
+      this.http
+        .post(this.apiUrl + '/toggle_af', { af_enabled: "True" })
+        .subscribe((data) => {});
+    } else {
+      this.http
+        .post(this.apiUrl + '/toggle_af', { af_enabled: 'False' })
+        .subscribe((data) => {});
+    }
   }
 
   selectDirectoryLeft(files: any) {
