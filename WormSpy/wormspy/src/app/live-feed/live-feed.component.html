@@ -1,117 +1,149 @@
-<h1>WormSpy <a style="font-size: medium;">alpha v0.2</a></h1>
-<div class="background">
-  <div class="live-feed-block">
-    <div class="live-feed-container">
-      <div class="live-feed" *ngIf="isLiveFeedEnabled">
-        <img [src]="liveFeedUrlNormal" alt="" />
-      </div>
-      <div class="live-feed" *ngIf="isLiveFeedEnabled">
-        <img [src]="liveFeedUrlFluorescent" alt="" />
-      </div>
-    </div>
-    <div class="live-feed-settings">
-      <div class="top-row-feed-settings">
-        <mat-form-field>
-          <mat-label>Select Left Camera </mat-label>
-          <mat-select [(value)]="leftCamera" [disabled]="isLiveFeedEnabled">
-            <mat-option value="1">Camera 1</mat-option>
-            <mat-option value="2">Camera 2</mat-option>
-            <!-- <mat-option value="3">Camera 3</mat-option>
-            <mat-option value="4">Camera 4</mat-option> -->
-          </mat-select>
-        </mat-form-field>
-        <mat-form-field>
-          <mat-label>Select Right Camera </mat-label>
-          <mat-select [(value)]="rightCamera" [disabled]="isLiveFeedEnabled">
-            <mat-option value="1">Camera 1</mat-option>
-            <mat-option value="2">Camera 2</mat-option>
-            <!-- <mat-option value="3">Camera 3</mat-option>
-            <mat-option value="4">Camera 4</mat-option> -->
-          </mat-select>
-        </mat-form-field>
-      </div>
-      <div class="bottom-row-feed-settings">
-        <div class="bottom-row-left-feed-settings">
-          <mat-form-field class="example-full-width">
-            <mat-label>Serial Port</mat-label>
-            <input
-              matInput
-              type="text"
-              value="com4"
-              [formControl]="serialInput"
-              [disabled]="isLiveFeedEnabled"
-            />
-          </mat-form-field>
-          <div class="bottom-row-left-bottom-feed-settings">
-            <mat-button-toggle (click)="toggleTracking()">{{
-              isTrackingEnabled ? "Disable Tracking" : "Enable Tracking"
-            }}</mat-button-toggle>
-            <mat-button-toggle (click)="toggleAutofocus()">{{
-              isAutofocusEnabled ? "Disable Autofocus" : "Enable Autofocus"
-            }}</mat-button-toggle>
-          </div>
+<div class="main">
+  <h1>WormSpy <a style="font-size: medium">alpha v0.2</a></h1>
+  <div class="background">
+    <div class="live-feed-block">
+      <div class="live-feed-container">
+        <div class="live-feed" *ngIf="isLiveFeedEnabled">
+          <img [src]="liveFeedUrlNormal" alt="" />
         </div>
-        <mat-button-toggle (click)="toggleLiveFeed()">{{
-          isLiveFeedEnabled ? "Stop Live Feed" : "Start Live Feed"
-        }}</mat-button-toggle>
+        <div class="live-feed" *ngIf="isLiveFeedEnabled">
+          <img [src]="liveFeedUrlFluorescent" alt="" />
+        </div>
+      </div>
+      <div class="live-feed-settings">
+        <div class="top-row-feed-settings">
+          <mat-form-field>
+            <mat-label>Select Left Camera </mat-label>
+            <mat-select [(value)]="leftCamera" [disabled]="isLiveFeedEnabled">
+              <mat-option value="1">Camera 1</mat-option>
+              <mat-option value="2">Camera 2</mat-option>
+              <!-- <mat-option value="3">Camera 3</mat-option>
+            <mat-option value="4">Camera 4</mat-option> -->
+            </mat-select>
+          </mat-form-field>
+          <mat-form-field>
+            <mat-label>Select Right Camera </mat-label>
+            <mat-select [(value)]="rightCamera" [disabled]="isLiveFeedEnabled">
+              <mat-option value="1">Camera 1</mat-option>
+              <mat-option value="2">Camera 2</mat-option>
+              <!-- <mat-option value="3">Camera 3</mat-option>
+            <mat-option value="4">Camera 4</mat-option> -->
+            </mat-select>
+          </mat-form-field>
+        </div>
+        <div class="bottom-row-feed-settings">
+          <div class="bottom-row-left-feed-settings">
+            <mat-form-field class="example-full-width">
+              <mat-label>Serial Port</mat-label>
+              <input
+                matInput
+                type="text"
+                value="com4"
+                [formControl]="serialInput"
+                [disabled]="isLiveFeedEnabled"
+              />
+            </mat-form-field>
+            <div class="bottom-row-left-bottom-feed-settings">
+              <mat-button-toggle (click)="toggleTracking()">{{
+                isTrackingEnabled ? "Disable Tracking" : "Enable Tracking"
+              }}</mat-button-toggle>
+              <mat-button-toggle (click)="toggleAutofocus()">{{
+                isAutofocusEnabled ? "Disable Autofocus" : "Enable Autofocus"
+              }}</mat-button-toggle>
+            </div>
+          </div>
+          <mat-button-toggle (click)="toggleLiveFeed()">{{
+            isLiveFeedEnabled ? "Stop Live Feed" : "Start Live Feed"
+          }}</mat-button-toggle>
+        </div>
       </div>
     </div>
-  </div>
-  <div class="recording-settings">
-    <div class="left-camera-settings">
-      <div>
-        <p>Select left camera folder</p>
-        <input
-          type="file"
-          name="folder"
-          id="folder"
-          multiple
-          webkitdirectory
-          (change)="selectDirectoryLeft(directory.files)"
-          #directory
-        />
+    <div class="recording-settings">
+      <div class="left-camera-settings">
+        <div>
+          <p>Select left camera folder</p>
+          <input
+            type="file"
+            name="folder"
+            id="folder"
+            multiple
+            webkitdirectory
+            (change)="selectDirectoryLeft(directory.files)"
+            #directory
+          />
+        </div>
+        <mat-form-field class="example-full-width">
+          <mat-label>Filename</mat-label>
+          <input
+            matInput
+            type="text"
+            placeholder="filename"
+            [formControl]="leftFilename"
+          />
+        </mat-form-field>
+        <mat-form-field class="example-full-width">
+          <mat-label>FPS</mat-label>
+          <input
+            matInput
+            type="number"
+            placeholder="FPS"
+            [formControl]="leftFPS"
+          />
+        </mat-form-field>
+        <mat-form-field class="example-full-width">
+          <mat-label>Resolution</mat-label>
+          <input
+            matInput
+            type="number"
+            placeholder="Resolution"
+            [formControl]="leftResolution"
+          />
+        </mat-form-field>
       </div>
-      <mat-form-field class="example-full-width">
-        <mat-label>Filename</mat-label>
-        <input matInput type="text" placeholder="filename" [formControl]="leftFilename"/>
-      </mat-form-field>
-      <mat-form-field class="example-full-width">
-        <mat-label>FPS</mat-label>
-        <input matInput type="number" placeholder="FPS"  [formControl]="leftFPS"/>
-      </mat-form-field>
-      <mat-form-field class="example-full-width">
-        <mat-label>Resolution</mat-label>
-        <input matInput type="number" placeholder="Resolution" [formControl]="leftResolution"/>
-      </mat-form-field>
-    </div>
-    <div class="right-camera-settings">
-      <div>
-        <p>Select right camera folder</p>
-        <input
-          type="file"
-          name="folder"
-          id="folder"
-          multiple
-          webkitdirectory
-          (change)="selectDirectoryRight(directory.files)"
-          #directory
-        />
+      <div class="right-camera-settings">
+        <div>
+          <p>Select right camera folder</p>
+          <input
+            type="file"
+            name="folder"
+            id="folder"
+            multiple
+            webkitdirectory
+            (change)="selectDirectoryRight(directory.files)"
+            #directory
+          />
+        </div>
+        <mat-form-field class="example-full-width">
+          <mat-label>Filename</mat-label>
+          <input
+            matInput
+            type="text"
+            placeholder="filename"
+            [formControl]="rightFilename"
+          />
+        </mat-form-field>
+        <mat-form-field class="example-full-width">
+          <mat-label>FPS</mat-label>
+          <input
+            matInput
+            type="number"
+            placeholder="FPS"
+            [formControl]="rightFPS"
+          />
+        </mat-form-field>
+        <mat-form-field class="example-full-width">
+          <mat-label>Resolution</mat-label>
+          <input
+            matInput
+            type="number"
+            placeholder="Resolution"
+            [formControl]="leftResolution"
+          />
+        </mat-form-field>
       </div>
-      <mat-form-field class="example-full-width">
-        <mat-label>Filename</mat-label>
-        <input matInput type="text" placeholder="filename" [formControl]="rightFilename"/>
-      </mat-form-field>
-      <mat-form-field class="example-full-width">
-        <mat-label>FPS</mat-label>
-        <input matInput type="number" placeholder="FPS" [formControl]="rightFPS"/>
-      </mat-form-field>
-      <mat-form-field class="example-full-width">
-        <mat-label>Resolution</mat-label>
-        <input matInput type="number" placeholder="Resolution"  [formControl]="leftResolution"/>
-      </mat-form-field>
+      <mat-button-toggle id="recordButton" (click)="toggleRecording()">{{
+        isRecording ? "Stop Recording" : "Start Recording"
+      }}</mat-button-toggle>
     </div>
-    <mat-button-toggle id="recordButton" (click)="toggleRecording()">{{
-      isRecording ? "Stop Recording" : "Start Recording"
-    }}</mat-button-toggle>
   </div>
 </div>

@@ -5,7 +5,7 @@ import cv2
 from dlclive import DLCLive, Processor
 import math
 from zaber_motion import Library, Units
-from zaber_motion.binary import Connection, Device
+from zaber_motion.binary import Connection, Device, CommandCode
 import numpy as np
 import pytz
 from datetime import datetime
@@ -18,17 +18,6 @@ app.config['CORS_HEADERS'] = 'Content-Type'
 Library.enable_device_db_store()
 
 # python -m flask run --host=127.0.0.1
-
-# PREFERENCES, these change how the code will act in aesthetic ways
-LOG_SENT_COMMANDS = True  # whether or not to print to console when a command is sent to zaber
-SENT_COMMAND_PRECISION = 4  # places after the decimal to include in logged commands
-PRE_CODE = "A-"  # a string put before all logged messages
-
-# COMMONLY USED CONFIGURATION
-# CURRENT_HEIGHT = 4  #millimeters height of camera
-TRACKING_MODE = "simpleToCenter"  # the mode for how the camera should track, default is "simpleToCenter"
-COM_PORT = "COM4"  # which com port to connect to for the zaber connection, format "COM#"
-CONNECTED_TO_ZABER = True  # whether or not the program should try to connect to the zaber (False for debugging)
 
 # SET UP CONFIGURATION -- config to be changed more rarely
 # BASE_HEIGHT = 1  #millimeters camera is up
@@ -43,7 +32,6 @@ TOTAL_PIXELS_Y = 256  # pixels across of the video feed
 
 # UNIT CONVERSIONS
 MM_MST = 20997  # millimeters per microstep
-MM_TOT = 50.8  # total millimeters that the zaber can extend
 
 # Zaber device boundaries
 MAXIMUM_DEVICE_XY_POSITION = 1066667
@@ -72,13 +60,16 @@ settings = {
 
 # Autofocus settings
 af_enabled = False
+start_af = False
 
 # Intial Camera Settings
 leftCam = None
 rightCam = None
 serialPort = 'COM4'
 
+# Tracking Variables
 is_tracking = False
+start_tracking = False
 
 @app.route("/")
 @cross_origin()
@@ -101,16 +92,24 @@ def video_feed():
   dlc_live = DLCLive('DLC_models', processor=dlc_proc, display=False)
   
   def gen():
-    global start_recording, stop_recording, settings, is_tracking, serialPort, af_enabled
+    global start_recording, stop_recording, settings, is_tracking, start_tracking, serialPort, af_enabled, start_af
+    start_af = False
+    start_recording = False
+    stop_recording = False
     is_recording = False
     fourcc = cv2.VideoWriter_fourcc(*'MJPG')
     out = cv2.VideoWriter()
     afRollingAvg = [] 
     afMotorPos = []
+    xPos = 0
+    yPos = 0
+    zPos = 0
     with Connection.open_serial_port(serialPort) as connection:
         with Connection.open_serial_port("COM3") as connection2:
           device_listXY = connection.detect_devices()
           device_listZ = connection2.detect_devices()
+          xMotor = device_listXY[0]
+          yMotor = device_listXY[1]
           zMotor = device_listZ[0]
           # device_list[0].
           firstIt = True
@@ -150,25 +149,31 @@ def video_feed():
                     np.savetxt(settings["filepath"] + settings["filename"]+ dtstr +".csv", poseDump, delimiter=",")
                     is_recording = False
                     stop_recording = False
+                  if start_af:
+                    zPos = zMotor.get_position(unit = Units.NATIVE)
+                    afMotorPos.append(zPos)
+                    start_af = False
                   if af_enabled:
                     focus = determineFocus(cv2.cvtColor(frame, cv2.COLOR_RGB2BGR))
-                    mPos = zMotor.get_position(unit = Units.NATIVE)
+                    # mPos = zMotor.get_position(unit = Units.NATIVE)
                     afRollingAvg.append(focus)
-                    afMotorPos.append(mPos)
-                    if len(afRollingAvg) > 10:
+                    if len(afRollingAvg) > 5:
                       afRollingAvg.pop(0)
                       afMotorPos.pop(0) # 100 Microsteps seems to be a good sweet spot
-                    setFocus(zMotor, focus, mPos, afRollingAvg, afMotorPos)
-
+                    zPos = setFocus(zMotor, focus, afRollingAvg, afMotorPos)
+                    afMotorPos.append(zPos)
                   factor = cap.get(3) / (cap.get(3) * SCALE_FACTOR)
                   posArr =  [tuple(map(lambda x: int(abs(x) * factor), i) ) for i in posArr]
                   frame = cv2.cvtColor(frame, cv2.COLOR_GRAY2RGB)
                   frame = draw_skeleton(frame, posArr)
-
                   nerveringX = poseArr[0, 0]
                   nerveringY = poseArr[0, 1]
+                  if start_tracking:
+                    xPos = xMotor.get_position(unit = Units.NATIVE)
+                    yPos = yMotor.get_position(unit = Units.NATIVE)
+                    start_tracking = False
                   if is_tracking:
-                    trackWorm((nerveringX, nerveringY), device_listXY)
+                    xPos, yPos = trackWorm((nerveringX, nerveringY), xMotor, yMotor, xPos, yPos)
                     
                   ret, jpeg = cv2.imencode('.jpg', frame)
                   # Yield the encoded frame
@@ -286,16 +291,18 @@ def camera_settings():
 @cross_origin()
 @app.route("/toggle_tracking", methods=['POST'])
 def toggle_tracking():
-    global is_tracking
+    global is_tracking, start_tracking
     is_tracking = request.json['is_tracking'] == "True"
+    start_tracking = True
     return str(is_tracking)
 
 
 @cross_origin()
 @app.route("/toggle_af", methods=['POST'])
 def toggle_af():
-    global af_enabled
+    global af_enabled, start_af
     af_enabled = request.json['af_enabled'] == "True"
+    start_af = True
     return str(af_enabled)
 
 
@@ -303,26 +310,45 @@ def determineFocus(image):
     gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
     sobelx = cv2.Sobel(gray, cv2.CV_64F, 1, 0, ksize=3)
     abs_sobelx = cv2.convertScaleAbs(sobelx)
-    focus_measure = cv2.Laplacian(abs_sobelx, cv2.CV_64F).var()
+    focus_measure = int(cv2.Laplacian(abs_sobelx, cv2.CV_64F).var())
+    # print(focus_measure)
     return focus_measure
 
-def setFocus(zMotor: Device, focus, mPos, afRollingAvg, afMotorPos):
-  if len(afRollingAvg) > 1: #  and focus < np.mean(afRollingAvg)
+def setFocus(zMotor: Device, focus: int, afRollingAvg, afMotorPos):
+  step = 25
+  mPos = afMotorPos[-1]
+  if len(afRollingAvg) > 1 and len(afMotorPos) > 1: 
     mPosDiff = afMotorPos[-1] - afMotorPos[-2]
+    # print(mPosDiff)
     # current focus is worse than previous focus
-    if afRollingAvg[-1] < afRollingAvg[-2]:
+    if focus < np.mean(afRollingAvg):
       # move towards previous position
-      if mPosDiff > 0 and mPos + 100 < MAXIMUM_DEVICE_Z_POSITION: 
-        zMotor.move_relative(100, Units.NATIVE)
-      elif mPosDiff < 0 and mPosDiff - 100 > MINIMUM_DEVICE_POSITION:
-        zMotor.move_relative(-100, Units.NATIVE)
+      # print('focus getting worse')
+      if mPosDiff <= 0 and mPos + step < MAXIMUM_DEVICE_Z_POSITION:
+        # print( 'focus getting worse ' + 'move up 100')
+        # zMotor.move_relative(step, Units.NATIVE)
+        zMotor.generic_command_no_response(command=CommandCode.MOVE_RELATIVE, data=step)
+        return (mPos + step)
+      elif mPosDiff > 0 and mPos - step > MINIMUM_DEVICE_POSITION:
+        # print( 'focus getting worse ' + 'move down 100')
+        # zMotor.move_relative(-step, Units.NATIVE)
+        zMotor.generic_command_no_response(command=CommandCode.MOVE_RELATIVE, data=-step)
+        return (mPos - step)
     # current focus is better than previous focus
-    elif afRollingAvg[-1] > afRollingAvg[-2]: 
+    elif focus > np.mean(afRollingAvg):
+      # print('focus getting better') 
       # continue current movement direction
-      if mPosDiff < 0 and mPos + 100 < MAXIMUM_DEVICE_Z_POSITION: 
-        zMotor.move_relative(100, Units.NATIVE)
-      elif mPosDiff > 0 and mPosDiff - 100 > MINIMUM_DEVICE_POSITION:
-        zMotor.move_relative(-100, Units.NATIVE)
+      if mPosDiff <= 0 and mPos - step > MINIMUM_DEVICE_POSITION:
+        # print( 'focus getting better ' + 'move down 100')
+        # zMotor.move_relative(-step, Units.NATIVE)
+        zMotor.generic_command_no_response(command=CommandCode.MOVE_RELATIVE, data=-step)
+        return (mPos - step)
+      elif mPosDiff > 0 and mPos + step < MAXIMUM_DEVICE_Z_POSITION:
+        # print('focus getting better '+ 'move up 100')
+        # zMotor.move_relative(step, Units.NATIVE)
+        zMotor.generic_command_no_response(command=CommandCode.MOVE_RELATIVE, data=step)
+        return (mPos + step)
+  return mPos
 
 def simpleToCenter(centroidX, centroidY):
   # calculate the percent the position is from the edge of the frame
@@ -339,7 +365,7 @@ def simpleToCenter(centroidX, centroidY):
 
   return millisMoveX, millisMoveY, millisMoveX, millisMoveY
 
-def trackWorm(input, device_list):
+def trackWorm(input, deviceX: Device, deviceY: Device, deviceXPos, deviceYPos):
 	# check if the input is NaN float value and return if so
   if math.isnan(input[0]):
     return 0, 0
@@ -357,22 +383,17 @@ def trackWorm(input, device_list):
   xCmdAmt = master[0] * MM_MST
   yCmdAmt = master[1] * MM_MST
 
-  # determine device from list
-  deviceX: Device = device_list[0]
-  deviceY: Device = device_list[1]
-
-  # get current device location
-  deviceXPos = deviceX.get_position(unit = Units.NATIVE)
-  deviceYPos = deviceY.get_position(unit = Units.NATIVE)
-
   # move device if the bounds of the device are not exceeded
   if (deviceXPos + xCmdAmt/10 < MAXIMUM_DEVICE_XY_POSITION 
       or deviceXPos + xCmdAmt/10 > MINIMUM_DEVICE_POSITION
-      or deviceYPos + xCmdAmt/10 < MAXIMUM_DEVICE_XY_POSITION 
-      or deviceYPos + xCmdAmt/10 > MINIMUM_DEVICE_POSITION):
-    deviceX.move_relative(xCmdAmt/10, Units.NATIVE)
-    deviceY.move_relative(yCmdAmt/10, Units.NATIVE)
-  return 0, 0
+      or deviceYPos + yCmdAmt/10 < MAXIMUM_DEVICE_XY_POSITION 
+      or deviceYPos + yCmdAmt/10 > MINIMUM_DEVICE_POSITION):
+    # deviceX.move_relative(xCmdAmt/10, Units.NATIVE)
+    # deviceY.move_relative(yCmdAmt/10, Units.NATIVE)
+    deviceX.generic_command_no_response(command=CommandCode.MOVE_RELATIVE, data=int(xCmdAmt/10))
+    deviceY.generic_command_no_response(command=CommandCode.MOVE_RELATIVE, data=int(yCmdAmt/10))
+
+  return (deviceXPos + xCmdAmt/10), (deviceYPos + yCmdAmt/10)
 
 def save_video(buff): # what does this function do???
   fourcc = cv2.VideoWriter_fourcc(*'MJPG')
