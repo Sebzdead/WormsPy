@@ -1,4 +1,4 @@
-from flask import Flask, request, Response, jsonify
+from flask import Flask, request, Response, jsonify, render_template
 from flask_cors import CORS, cross_origin
 import EasyPySpin
 import cv2
@@ -11,8 +11,8 @@ import pytz
 from datetime import datetime
 import os
 
-app = Flask(__name__)
-CORS(app, origins=['http://localhost:4200'])
+app = Flask(__name__, template_folder='production\\templates', static_folder='production\\static') 
+CORS(app, origins=['http://localhost:4200', 'http://localhost:5000'])
 app.config['CORS_HEADERS'] = 'Content-Type'
 
 Library.enable_device_db_store()
@@ -74,7 +74,7 @@ start_tracking = False
 @app.route("/")
 @cross_origin()
 def home():
-    return "Hello, Flask! Why don't you work?"
+    return render_template('index.html')
 
 @cross_origin()
 @app.route('/video_feed')
@@ -137,7 +137,7 @@ def video_feed():
                   if is_recording:
                     factor2 = cap.get(3) / (cap.get(3) * SCALE_FACTOR)
                     posArr2 =  [tuple(map(lambda x: int(abs(x) * factor2), i) ) for i in posArr]
-                    posArr2 = np.append(posArr2, confArr, axis=1)
+                    # posArr2 = np.append(posArr2, confArr, axis=1) # uncommentate to get confidence values in CSV
                     poseDump = np.append(poseDump, posArr2, axis=0)
                     im_out = cv2.resize(frame, settings["resolution"])
                     out.write(im_out)
