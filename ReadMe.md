@@ -28,7 +28,7 @@ If all three motors are connected via the same serial port, you will have to mod
 5. Run StartWormSpy.bat
 6. In your browser visit `localhost:5000`
 
-## Developers Notes
+## Developer's Notes
 More information for those interested in adapting WormSpy for their use case.
 
 ### Frontend 
@@ -46,3 +46,9 @@ WormSpy uses a Python Flask web server (`app.py`) to communicate with the fronte
 If you would like to train and use your own DLC model, place your model in the `DLC_models` folder and replace the `skeleton` folder in the `DLCLive` function of the `video_feed` method.
 
 For more detailed programmatical information about WormSpy, refer to the inline comments found in `app.py`.  
+
+## License
+
+WormSpy was developed by Sebastian Wittekindt and Lennard Wittekindt at the [INSERT DEPARTMENT] of McGill University. Funded by [INSERT FUNDING]
+
+Provided as open source software under the MIT license, view the [license](LICENSE.TXT) for details.
