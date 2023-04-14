@@ -81,6 +81,9 @@ export class LiveFeedComponent implements OnInit {
       this.serialInput.enable();
       this.liveFeedUrlNormal = '';
       this.liveFeedUrlFluorescent = '';
+      this.http
+        .post(this.apiUrl + '/stop_live_stream', {})
+        .subscribe((data) => {});
     }
   }
 

@@ -1,4 +1,4 @@
-from flask import Flask, request, Response, jsonify, render_template
+from flask import Flask, request, Response, jsonify, render_template, abort
 from flask_cors import CORS, cross_origin
 import EasyPySpin
 import cv2
@@ -46,6 +46,7 @@ MINIMUM_DEVICE_POSITION = 0
 SCALE_FACTOR = 0.25
 
 # Global Variables for recording
+stop_stream = False
 start_recording = False
 stop_recording = False
 start_recording_fl = False
@@ -102,7 +103,7 @@ def video_feed():
 
     # function to generate a stream of image frames for the tracking video feed
     def gen():
-        global start_recording, stop_recording, settings, is_tracking, start_tracking, serialPort, af_enabled, start_af
+        global start_recording, stop_recording, settings, is_tracking, start_tracking, serialPort, af_enabled, start_af, stop_stream
         start_af = False
         start_recording = False
         stop_recording = False
@@ -129,7 +130,9 @@ def video_feed():
                     # Read a frame from the video capture
                     success, frame = cap.read()
                     # Check if the frame was successfully read
-                    if success:
+                    if stop_stream:
+                        abort(status=200)
+                    elif success:
                         # Resize the image to be 256x256
                         img_dlc = cv2.resize(
                             frame, None, fx=SCALE_FACTOR, fy=SCALE_FACTOR)
@@ -148,7 +151,7 @@ def video_feed():
                         if is_tracking:
                             xPos, yPos, xCmd, yCmd = trackWorm(
                                 (midBodyX, midBodyY), xMotor, yMotor, xPos, yPos)
-                        # Reinitialize file recording 
+                        # Reinitialize file recording
                         if start_recording:
                             print("Start Recording")
                             dt = datetime.now(tz=timeZone)
@@ -158,17 +161,18 @@ def video_feed():
                             start_recording = False
                             is_recording = True
                             csvDump = np.zeros((1, 2))
-                        # add frame to recording buffer if currently recording  
+                        # add frame to recording buffer if currently recording
                         if is_recording:
                             # factor2 = cap.get(3) / (cap.get(3) * SCALE_FACTOR)
                             # posArr2 = [
-                                # tuple(map(lambda x: int(abs(x) * factor2), i)) for i in posArr]
+                            # tuple(map(lambda x: int(abs(x) * factor2), i)) for i in posArr]
                             # posArr2 = np.append(posArr2, confArr, axis=1) # uncommentate to get confidence values in CSV, change shape to 0,3
                             # poseDump = np.append(poseDump, posArr2, axis=0)
-                            csvDump = np.append(csvDump, [[xCmd, yCmd]], axis=0)
+                            csvDump = np.append(
+                                csvDump, [[xCmd, yCmd]], axis=0)
                             im_out = cv2.resize(frame, settings["resolution"])
                             out.write(im_out)
-                        # convert recording buffer to file 
+                        # convert recording buffer to file
                         if stop_recording:
                             print("Stopped Recording")
                             out.release()
@@ -219,12 +223,13 @@ def video_feed():
 @cross_origin()
 @app.route('/video_feed_fluorescent')
 def video_feed_fluorescent():
-    global rightCam
+    global rightCam, stop_stream
     cap = EasyPySpin.VideoCapture(rightCam)
     if not cap.isOpened():
         print("Camera can't open\nexit")
         return -1
-
+    if stop_stream:
+        abort(status=200)
     def gen():
         global start_recording_fl, stop_recording_fl, settings, is_tracking, serialPort
         is_recording = False
@@ -236,21 +241,21 @@ def video_feed_fluorescent():
             # Check if the frame was successfully read
             if success:
                 if start_recording_fl:
-                  print("Start Fluorescent Recording")
-                  # out.open(settings["filepath_fl"] + settings["filename_fl"], fourcc, float(settings["fps_fl"]), settings["resolution_fl"], isColor=False)
-                  start_recording_fl = False
-                  is_recording = True
-                  frame_count = 0
-                  dt = datetime.now(tz=timeZone)
-                  dtstr = dt.strftime("%d-%m-%Y_%H-%M-%S")
-                  folder_name = settings["filename_fl"] + '_' + dtstr
-                  path = os.path.join(settings["filepath_fl"], folder_name)
-                  os.mkdir(path)
+                    print("Start Fluorescent Recording")
+                    # out.open(settings["filepath_fl"] + settings["filename_fl"], fourcc, float(settings["fps_fl"]), settings["resolution_fl"], isColor=False)
+                    start_recording_fl = False
+                    is_recording = True
+                    frame_count = 0
+                    dt = datetime.now(tz=timeZone)
+                    dtstr = dt.strftime("%d-%m-%Y_%H-%M-%S")
+                    folder_name = settings["filename_fl"] + '_' + dtstr
+                    path = os.path.join(settings["filepath_fl"], folder_name)
+                    os.mkdir(path)
                 if is_recording:
-                  frame_count += 1
-                  frame = cv2.resize(frame, settings["resolution_fl"])
-                  cv2.imwrite(
-                      f"{settings['filepath_fl']}\\{folder_name}\\frame_{frame_count}.tiff", frame)
+                    frame_count += 1
+                    frame = cv2.resize(frame, settings["resolution_fl"])
+                    cv2.imwrite(
+                        f"{settings['filepath_fl']}\\{folder_name}\\frame_{frame_count}.tiff", frame)
                 if stop_recording_fl:
                     print("Stopped Fluorescent Recording")
                     # out.release()
@@ -295,10 +300,18 @@ def start_recording():
 @app.route("/stop_recording", methods=['POST'])
 def stop_recording():
     global stop_recording, stop_recording_fl
-    # Start the recording of both video feeds
+    # Stop the recording of both video feeds
     stop_recording = True
     stop_recording_fl = True
     return jsonify({"message": "Recording stopped"})
+
+@cross_origin()
+@app.route("/stop_live_stream", methods=['POST'])
+def stop_live_stream():
+    global stop_stream
+    # Stop both video feeds
+    stop_stream = True
+    return jsonify({"message": "Streams stopped"})
 
 
 @cross_origin()
@@ -333,7 +346,7 @@ def toggle_af():
 
 
 def determineFocus(image):
-    # determine focus using thresholding 
+    # determine focus using thresholding
     gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
     sobelx = cv2.Sobel(gray, cv2.CV_64F, 1, 0, ksize=3)
     abs_sobelx = cv2.convertScaleAbs(sobelx)
@@ -342,7 +355,7 @@ def determineFocus(image):
 
 
 def setFocus(zMotor: Device, focus: int, afRollingAvg, afMotorPos):
-    step = 30 # The amount the z motor moves with each call of the function
+    step = 30  # The amount the z motor moves with each call of the function
     mPos = afMotorPos[-1]
     if len(afRollingAvg) > 1 and len(afMotorPos) > 1:
         mPosDiff = afMotorPos[-1] - afMotorPos[-2]

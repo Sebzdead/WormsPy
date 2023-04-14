@@ -7,14 +7,6 @@ CORS(app)
 app.config['CORS_HEADERS'] = 'Content-Type'
 cap = cv2.VideoCapture(0)
 
-
-
-
-
-
-
-
-
 # Status indicators to be altered with get requests. 
 TRACKING_ENABLED = False
 AUTOFOCUS_ENABLED = False
