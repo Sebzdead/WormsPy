@@ -49,6 +49,6 @@ For more detailed programmatical information about WormSpy, refer to the inline 
 
 ## License
 
-WormSpy was developed by Sebastian Wittekindt and Lennard Wittekindt at the [INSERT DEPARTMENT] of McGill University. Funded by [INSERT FUNDING]
+WormSpy was developed by Sebastian Wittekindt and Lennard Wittekindt at McGill University. Funded by the Canadian Institute for Health Research.
 
 Provided as open source software under the MIT license, view the [license](LICENSE.TXT) for details.
