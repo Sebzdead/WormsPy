@@ -10,6 +10,8 @@ import numpy as np
 import pytz
 from datetime import datetime
 import os
+import io
+from matplotlib import pyplot as plt
 
 app = Flask(__name__, template_folder='production\\templates',
             static_folder='production\\static')
@@ -77,8 +79,8 @@ is_tracking = False
 start_tracking = False
 nodeIndex = 0
 
-# Route for the home page
-
+# variables for histogram
+hist_frame = None
 
 @app.route("/")
 @cross_origin()
@@ -226,6 +228,8 @@ def video_feed():
 def video_feed_fluorescent():
     global rightCam, stop_stream
     cap = EasyPySpin.VideoCapture(rightCam)
+    cap.set(cv2.CAP_PROP_EXPOSURE, 64998) # us
+    cap.set(cv2.CAP_PROP_GAIN, 0)
     if not cap.isOpened():
         print("Camera can't open\nexit")
         return -1
@@ -237,10 +241,12 @@ def video_feed_fluorescent():
         # fourcc = cv2.VideoWriter_fourcc(*'MJPG')
         # out = cv2.VideoWriter()
         while (cap.isOpened()):
+            global hist_frame
             # Read a frame from the video capture
             success, frame = cap.read()
             # Check if the frame was successfully read
             if success:
+                hist_frame = frame
                 if start_recording_fl:
                     print("Start Fluorescent Recording")
                     # out.open(settings["filepath_fl"] + settings["filename_fl"], fourcc, float(settings["fps_fl"]), settings["resolution_fl"], isColor=False)
@@ -271,6 +277,31 @@ def video_feed_fluorescent():
                 # If the frame was not successfully read, yield a blank frame
                 yield (b'--frame\r\n'
                        b'Content-Type: image/jpeg\r\n\r\n\r\n')
+    # Return the video feed as a multipart/x-mixed-replace response
+    return Response(gen(), mimetype='multipart/x-mixed-replace; boundary=frame')
+
+
+@cross_origin()
+@app.route("/get_hist")
+def get_hist():
+    def gen():
+        global hist_frame
+        while True: 
+            if hist_frame is not None:
+                buffer = io.BytesIO()
+                hist = cv2.calcHist([hist_frame], [0], None, [256], [1, 256])
+                hist = cv2.normalize(hist, hist, 1, 255, cv2.NORM_MINMAX)
+                # plt.hist(hist, 256, [1, 256])
+                plt.clf()
+                plt.plot(hist)
+                plt.savefig(buffer, format="png")
+                image_data = buffer.getvalue()
+                yield (b'--frame\r\n'
+                        b'Content-Type: image/jpeg\r\n\r\n' + image_data + b'\r\n')
+            elif hist_frame is None:
+                # If the frame was not successfully read, yield a blank frame
+                yield (b'--frame\r\n'
+                        b'Content-Type: image/jpeg\r\n\r\n\r\n')
     # Return the video feed as a multipart/x-mixed-replace response
     return Response(gen(), mimetype='multipart/x-mixed-replace; boundary=frame')
 
