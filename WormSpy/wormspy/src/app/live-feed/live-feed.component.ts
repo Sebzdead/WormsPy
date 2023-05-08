@@ -1,5 +1,5 @@
 import { Component, OnInit } from '@angular/core';
-import { FormControl } from '@angular/forms';
+import { FormControl, Validators } from '@angular/forms';
 import { HttpClient } from '@angular/common/http';
 
 @Component({
@@ -27,6 +27,11 @@ export class LiveFeedComponent implements OnInit {
   public liveFeedUrlNormal!: string;
   public liveFeedUrlFluorescent!: string;
 
+  // array range values
+  indexMin = 0;
+  indexMax = 2;
+
+  // settings to change file paths
   private recordingSettings = {
     filepath: 'D:\\WormSpy_video\\Tracking\\',
     filename: 'Tracking_Video',
@@ -40,6 +45,10 @@ export class LiveFeedComponent implements OnInit {
 
   // Serial Port
   serialInput = new FormControl('COM4');
+  nodeIndex = new FormControl('0', [
+    Validators.min(this.indexMin),
+    Validators.max(this.indexMax),
+  ]);
 
   // Camera selection
   leftCamera = '1';
@@ -90,7 +99,7 @@ export class LiveFeedComponent implements OnInit {
   // Method to start or stop recording the live feed
   public toggleRecording(): void {
     this.isRecording = !this.isRecording;
-    
+
     if (this.isRecording) {
       // Disable input fields
       this.leftFPS.disable();
@@ -99,26 +108,25 @@ export class LiveFeedComponent implements OnInit {
       this.rightFPS.disable();
       this.rightResolution.disable();
       this.rightFilename.disable();
-      
-      // Update Settings 
+
+      // Update Settings
       this.recordingSettings.filename = this.leftFilename.value;
       this.recordingSettings.fps = this.leftFPS.value;
       this.recordingSettings.resolution = this.leftResolution.value;
       this.recordingSettings.filename_fl = this.rightFilename.value;
       this.recordingSettings.fps_fl = this.rightFPS.value;
       this.recordingSettings.resolution_fl = this.rightResolution.value;
-      
+
       // Send settings to API and initiate video recording
       this.http
         .post(this.apiUrl + '/start_recording', this.recordingSettings)
         .subscribe((data) => {});
-      
     } else {
       // Terminate video recording
       this.http
         .post(this.apiUrl + '/stop_recording', {})
         .subscribe((data) => {});
-      
+
       // Renable input fields
       this.leftFPS.enable();
       this.leftResolution.enable();
@@ -143,12 +151,32 @@ export class LiveFeedComponent implements OnInit {
     }
   }
 
+  // Method to enable or disable tracking in the live feed
+  public sendNodeIndex(): void {
+    if (!(this.nodeIndex.value === '')) {
+      if (this.nodeIndex.value != null) {
+        let index = parseInt(this.nodeIndex.value);
+        if (parseInt(this.nodeIndex.value) == 0) {
+          index = 0;
+        }
+        if (index > this.indexMax) {
+          index = this.indexMax;
+        } else if (index < this.indexMin) {
+          index = this.indexMin;
+        }
+        this.http
+          .post(this.apiUrl + '/node_index', { index: index })
+          .subscribe((data) => {});
+      }
+    }
+  }
+
   // Method to enable or disable autofocus in the live feed
   public toggleAutofocus(): void {
     this.isAutofocusEnabled = !this.isAutofocusEnabled;
     if (this.isAutofocusEnabled) {
       this.http
-        .post(this.apiUrl + '/toggle_af', { af_enabled: "True" })
+        .post(this.apiUrl + '/toggle_af', { af_enabled: 'True' })
         .subscribe((data) => {});
     } else {
       this.http

@@ -52,9 +52,23 @@
               }}</mat-button-toggle>
             </div>
           </div>
-          <mat-button-toggle (click)="toggleLiveFeed()">{{
-            isLiveFeedEnabled ? "Stop Live Feed" : "Start Live Feed"
-          }}</mat-button-toggle>
+          <div class="bottom-row-right-feed-settings">
+            <mat-form-field class="example-full-width">
+              <mat-label>Node Index</mat-label>
+              <input
+                matInput
+                type="number"
+                [formControl]="nodeIndex"
+                [disabled]="isLiveFeedEnabled"
+                (ngModelChange)="sendNodeIndex()"
+              />
+            </mat-form-field>
+            <div class="bottom-row-right-bottom-feed-settings">
+              <mat-button-toggle (click)="toggleLiveFeed()">{{
+                isLiveFeedEnabled ? "Stop Live Feed" : "Start Live Feed"
+              }}</mat-button-toggle>
+            </div>
+          </div>
         </div>
       </div>
     </div>

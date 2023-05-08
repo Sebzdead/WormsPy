@@ -1,0 +1,91 @@
+all_joints:
+- - 0
+- - 1
+- - 2
+all_joints_names:
+- head
+- midbody
+- tail
+alpha_r: 0.02
+apply_prob: 0.5
+batch_size:
+clahe: true
+claheratio: 0.1
+crop_pad: 0
+crop_sampling: hybrid
+crop_size:
+- 400
+- 400
+cropratio: 0.4
+dataset: training-datasets\iteration-0\UnaugmentedDataSet_WormSpy3.0Apr21\WormSpy3.0_Seb95shuffle1.mat
+dataset_type: imgaug
+decay_steps: 30000
+deterministic: false
+display_iters: 1000
+edge: false
+emboss:
+  alpha:
+  - 0.0
+  - 1.0
+  embossratio: 0.1
+  strength:
+  - 0.5
+  - 1.5
+fg_fraction: 0.25
+global_scale: 0.8
+histeq: true
+histeqratio: 0.1
+init_weights: C:\Users\sebas\Documents\WormSpy3.0-Seb-2023-04-21\dlc-models\iteration-0\WormSpy3.0Apr21-trainset95shuffle1\train\snapshot-410000
+intermediate_supervision: false
+intermediate_supervision_layer: 12
+location_refinement: true
+locref_huber_loss: true
+locref_loss_weight: 0.05
+locref_stdev: 7.2801
+log_dir: log
+lr_init: 0.0005
+max_input_size: 1500
+max_shift: 0.4
+mean_pixel:
+- 123.68
+- 116.779
+- 103.939
+metadataset: training-datasets\iteration-0\UnaugmentedDataSet_WormSpy3.0Apr21\Documentation_data-WormSpy3.0_95shuffle1.pickle
+min_input_size: 64
+mirror: false
+multi_stage: false
+multi_step:
+- - 0.005
+  - 10000
+- - 0.02
+  - 430000
+- - 0.002
+  - 730000
+- - 0.001
+  - 1030000
+net_type: resnet_101
+num_joints: 3
+num_outputs: 1
+optimizer: sgd
+pairwise_huber_loss: false
+pairwise_predict: false
+partaffinityfield_predict: false
+pos_dist_thresh: 17
+pre_resize: []
+project_path: C:\Users\sebas\Documents\WormSpy3.0-Seb-2023-04-21
+regularize: false
+rotation: 25
+rotratio: 0.4
+save_iters: 50000
+scale_jitter_lo: 0.5
+scale_jitter_up: 1.25
+scoremap_dir: test
+sharpen: false
+sharpenratio: 0.3
+shuffle: true
+snapshot_prefix: C:\Users\sebas\Documents\WormSpy3.0-Seb-2023-04-21\dlc-models\iteration-0\WormSpy3.0Apr21-trainset95shuffle1\train\snapshot
+stride: 8.0
+weigh_negatives: false
+weigh_only_present_joints: false
+weigh_part_predictions: false
+weight_decay: 0.0001

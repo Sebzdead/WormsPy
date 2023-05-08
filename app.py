@@ -75,6 +75,7 @@ serialPort = 'COM4'
 # Tracking Variables
 is_tracking = False
 start_tracking = False
+nodeIndex = 0
 
 # Route for the home page
 
@@ -98,12 +99,12 @@ def video_feed():
 
     # Import the DLC NN model
     dlc_proc = Processor()
-    dlc_live = DLCLive('DLC_models/skeleton',
+    dlc_live = DLCLive('DLC_models/3-node',
                        processor=dlc_proc, display=False)
 
     # function to generate a stream of image frames for the tracking video feed
     def gen():
-        global start_recording, stop_recording, settings, is_tracking, start_tracking, serialPort, af_enabled, start_af, stop_stream
+        global start_recording, stop_recording, settings, is_tracking, start_tracking, serialPort, af_enabled, start_af, stop_stream, nodeIndex
         start_af = False
         start_recording = False
         stop_recording = False
@@ -141,8 +142,8 @@ def video_feed():
                             firstIt = False
                         poseArr = dlc_live.get_pose(img_dlc)
                         posArr = poseArr[:, [0, 1]]
-                        midBodyX = poseArr[4, 0]
-                        midBodyY = poseArr[4, 1]
+                        nodePointX = poseArr[nodeIndex, 0]
+                        nodePointY = poseArr[nodeIndex, 1]
                         # confArr = poseArr[:, [2]]
                         if start_tracking:
                             xPos = xMotor.get_position(unit=Units.NATIVE)
@@ -150,7 +151,7 @@ def video_feed():
                             start_tracking = False
                         if is_tracking:
                             xPos, yPos, xCmd, yCmd = trackWorm(
-                                (midBodyX, midBodyY), xMotor, yMotor, xPos, yPos)
+                                (nodePointX, nodePointY), xMotor, yMotor, xPos, yPos)
                         # Reinitialize file recording
                         if start_recording:
                             print("Start Recording")
@@ -326,6 +327,15 @@ def camera_settings():
 
 
 @cross_origin()
+@app.route("/node_index", methods=['POST'])
+def node_index():
+    global nodeIndex
+    # Set the camera settings before starting the video feeds
+    nodeIndex = request.json['index']
+    return jsonify({f"message": "NodeIndex Recieved: {nodeIndex}"})
+
+
+@cross_origin()
 @app.route("/toggle_tracking", methods=['POST'])
 def toggle_tracking():
     global is_tracking, start_tracking
@@ -435,11 +445,11 @@ def draw_skeleton(frame, posArr):
     noseTipColor = (0, 0, 255)
     pharynxColor = (0, 128, 255)
     nerveRingColor = (0, 255, 255)
-    midbody1Color = (0, 255, 0)
-    midbody2Color = (255, 0, 0)
-    midbody3Color = (255, 0, 255)
-    tailBaseColor = (0, 0, 255)
-    tailTipColor = (255, 0, 0)
+    # midbody1Color = (0, 255, 0)
+    # midbody2Color = (255, 0, 0)
+    # midbody3Color = (255, 0, 255)
+    # tailBaseColor = (0, 0, 255)
+    # tailTipColor = (255, 0, 0)
     # confArr = poseArr[:, 2]
     # Overlay the tracking data onto the image
     # line from nose tip to pharynx
@@ -447,25 +457,25 @@ def draw_skeleton(frame, posArr):
     # line from pharynx to nerve_ring
     cv2.line(frame, posArr[1], posArr[2], linecolor, lineThickness)
     # line from nerve ring to midbody1
-    cv2.line(frame, posArr[2], posArr[3], linecolor, lineThickness)
-    # line from midbody1 to midbody2
-    cv2.line(frame, posArr[3], posArr[4], linecolor, lineThickness)
-    # line from midbody2 to midbody3
-    cv2.line(frame, posArr[4], posArr[5], linecolor, lineThickness)
-    # line from midbody3 to tail_base
-    cv2.line(frame, posArr[5], posArr[6], linecolor, lineThickness)
-    # line from tail_base to tail_tip
-    cv2.line(frame, posArr[6], posArr[7], linecolor, lineThickness)
+    # cv2.line(frame, posArr[2], posArr[3], linecolor, lineThickness)
+    # # line from midbody1 to midbody2
+    # cv2.line(frame, posArr[3], posArr[4], linecolor, lineThickness)
+    # # line from midbody2 to midbody3
+    # cv2.line(frame, posArr[4], posArr[5], linecolor, lineThickness)
+    # # line from midbody3 to tail_base
+    # cv2.line(frame, posArr[5], posArr[6], linecolor, lineThickness)
+    # # line from tail_base to tail_tip
+    # cv2.line(frame, posArr[6], posArr[7], linecolor, lineThickness)
 
     # draw circles on top of each worm part
     cv2.circle(frame, posArr[0], circleRadius, noseTipColor, circleThickness)
     cv2.circle(frame, posArr[1], circleRadius, pharynxColor, circleThickness)
     cv2.circle(frame, posArr[2], circleRadius, nerveRingColor, circleThickness)
-    cv2.circle(frame, posArr[3], circleRadius, midbody1Color, circleThickness)
-    cv2.circle(frame, posArr[4], circleRadius, midbody2Color, circleThickness)
-    cv2.circle(frame, posArr[5], circleRadius, midbody3Color, circleThickness)
-    cv2.circle(frame, posArr[6], circleRadius, tailBaseColor, circleThickness)
-    cv2.circle(frame, posArr[7], circleRadius, tailTipColor, circleThickness)
+    # cv2.circle(frame, posArr[3], circleRadius, midbody1Color, circleThickness)
+    # cv2.circle(frame, posArr[4], circleRadius, midbody2Color, circleThickness)
+    # cv2.circle(frame, posArr[5], circleRadius, midbody3Color, circleThickness)
+    # cv2.circle(frame, posArr[6], circleRadius, tailBaseColor, circleThickness)
+    # cv2.circle(frame, posArr[7], circleRadius, tailTipColor, circleThickness)
 
     return frame
 
