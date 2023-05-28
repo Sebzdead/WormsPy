@@ -4,7 +4,10 @@ WormSpy is a software for controlling an open source tracking fluorescence micro
 
 <br/>
 
-![](Demo.gif)
+![](media/Demo.gif)
+
+Example with Brightfield and Fluorescent videos side by side:
+![](media/Demo2.gif)
 
 ## Getting started with WormSpy
 
