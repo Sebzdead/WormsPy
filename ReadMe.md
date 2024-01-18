@@ -1,6 +1,6 @@
-# WormSpy
+# WormsPy
 
-WormSpy is a software for controlling an open source tracking fluorescence microscope. It is designed to utilize two cameras, shifted to different wavelengths to allow simultaneous tracking and behavioural measurements with high magnification calcium imaging. This setup also enables the simulatenous recording of both video feeds. Due to the flexible nature of the setup, other applications are possible. 
+WormsPy is a software for controlling an open source tracking fluorescence microscope. It is designed to utilize two cameras, shifted to different wavelengths to allow simultaneous tracking and behavioural measurements with high magnification calcium imaging. This setup also enables the simulatenous recording of both video feeds. Due to the flexible nature of the setup, other applications are possible. 
 
 <br/>
 
@@ -9,7 +9,7 @@ WormSpy is a software for controlling an open source tracking fluorescence micro
 Example with Brightfield and Fluorescent videos side by side:
 ![](media/Demo2.gif)
 
-## Getting started with WormSpy
+## Getting started with WormsPy
 
 WormSpy allows you to track the movements of a single worm whilst ensuring it always stays in focus. It also allowsyou to simultaneously record both video feeds. The tracking video feed is recorded as a compressed .avi file whilst the calcium imaging video feed is recorded as a series of uncompressed 16-bit .tiff files to enable further feature extraction.
 
@@ -22,7 +22,7 @@ Minimum requirements to use WormSpy:
 
 Spinnaker cameras can be replaced with any OpenCV compatible cameras, although EasyPySpin will have to be replaced with OpenCV.
 
-### Getting started with WormSpy
+### Getting started with WormsPy
 1. Miniconda / Anaconda 
 2. `conda create --name wormspy --file requirements.txt`
 3. Ensure only the required two cameras are connected to the computer.
@@ -35,7 +35,7 @@ If all three motors are connected via the same serial port, you will have to mod
 More information for those interested in adapting WormSpy for their use case.
 
 ### Frontend 
-The frontend of WormSpy was developed using Angular (HTML/SCSS/TS). To make adjustments the frontend, the installation of NodeJs is required. Run `npm install` in the `wormspy` folder after initially downloading the files. Adjustments to the frontend can be made in the live-feed component found in `wormspy/src/app/live-feed`. 
+The frontend of WormsPy was developed using Angular (HTML/SCSS/TS). To make adjustments the frontend, the installation of NodeJs is required. Run `npm install` in the `wormspy` folder after initially downloading the files. Adjustments to the frontend can be made in the live-feed component found in `wormspy/src/app/live-feed`. 
 
 To continue using flask as a web server and maintain `StartWormSpy.bat` as an easy launch option, follow these steps:
 1. Use `ng build` to create new production files in the `wormspy/dist` folder. 
