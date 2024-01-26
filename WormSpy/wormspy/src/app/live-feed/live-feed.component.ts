@@ -1,6 +1,7 @@
 import { Component, OnInit } from '@angular/core';
 import { FormControl, Validators } from '@angular/forms';
 import { HttpClient } from '@angular/common/http';
+import { SocketService } from '../socket/socket.service';
 
 @Component({
   selector: 'app-live-feed',
@@ -14,6 +15,10 @@ export class LiveFeedComponent implements OnInit {
   // Flag to indicate if the live feed is currently being recorded
   public isRecording: boolean = false;
 
+  public heatmapOn: boolean = false;
+
+  public manualEnabled = false;
+
   // Flag to indicate if the live feed is currently being tracked
   public isTrackingEnabled: boolean = false;
 
@@ -26,6 +31,9 @@ export class LiveFeedComponent implements OnInit {
   // the current image from the live feed
   public liveFeedUrlNormal!: string;
   public liveFeedUrlFluorescent!: string;
+
+  // the current histogram from the live feed flourescent
+  public liveFeedUrlHistogram!: string;
 
   // array range values
   indexMin = 0;
@@ -54,17 +62,24 @@ export class LiveFeedComponent implements OnInit {
   leftCamera = '1';
   rightCamera = '2';
 
-  // left recording settings
-  leftFilename = new FormControl('Tracking_Video');
-  leftFPS = new FormControl(10.0);
-  leftResolution = new FormControl(1024);
+  // // left recording settings
+  // leftFilename = new FormControl('Tracking_Video');
+  // leftFPS = new FormControl(10.0);
+  // leftResolution = new FormControl(1024);
 
   // right recording settings
   rightFilename = new FormControl('Tracking_Video_Fluorescent');
   rightFPS = new FormControl(10.0);
   rightResolution = new FormControl(1024);
 
-  constructor(private http: HttpClient) {}
+  // flouresctent camera settings
+  flourFPS = new FormControl(10.0);
+  flourExposure = new FormControl(10000);
+  flourGain = new FormControl(0);
+  
+
+  constructor(private http: HttpClient,
+    private sockService: SocketService) {}
 
   ngOnInit(): void {}
 
@@ -85,15 +100,24 @@ export class LiveFeedComponent implements OnInit {
         .subscribe((data) => {
           this.liveFeedUrlNormal = this.apiUrl + '/video_feed';
           this.liveFeedUrlFluorescent = this.apiUrl + '/video_feed_fluorescent';
+          this.liveFeedUrlHistogram = this.apiUrl + '/get_hist';
         });
+      // this.sockService.get_hist().subscribe((data: string) => {
+      //   this.liveFeedUrlHistogram = data;
+      // });
     } else {
       this.serialInput.enable();
       this.liveFeedUrlNormal = '';
       this.liveFeedUrlFluorescent = '';
+      this.liveFeedUrlHistogram = '';
       this.http
         .post(this.apiUrl + '/stop_live_stream', {})
         .subscribe((data) => {});
+      
     }
+
+    // this.liveFeedUrlNormal = "https://cdn.wallpapersafari.com/84/92/C9qAjh.jpg";
+    // this.liveFeedUrlFluorescent = "https://cdn.wallpapersafari.com/84/92/C9qAjh.jpg";
   }
 
   // Method to start or stop recording the live feed
@@ -102,20 +126,20 @@ export class LiveFeedComponent implements OnInit {
 
     if (this.isRecording) {
       // Disable input fields
-      this.leftFPS.disable();
-      this.leftResolution.disable();
-      this.leftFilename.disable();
-      this.rightFPS.disable();
-      this.rightResolution.disable();
+      // this.leftFPS.disable();
+      // this.leftResolution.disable();
+      // this.leftFilename.disable();
+      // this.rightFPS.disable();
+      // this.rightResolution.disable();
       this.rightFilename.disable();
 
       // Update Settings
-      this.recordingSettings.filename = this.leftFilename.value;
-      this.recordingSettings.fps = this.leftFPS.value;
-      this.recordingSettings.resolution = this.leftResolution.value;
+      // this.recordingSettings.filename = this.leftFilename.value;
+      // this.recordingSettings.fps = this.leftFPS.value;
+      // this.recordingSettings.resolution = this.leftResolution.value;
       this.recordingSettings.filename_fl = this.rightFilename.value;
-      this.recordingSettings.fps_fl = this.rightFPS.value;
-      this.recordingSettings.resolution_fl = this.rightResolution.value;
+      // this.recordingSettings.fps_fl = this.rightFPS.value;
+      // this.recordingSettings.resolution_fl = this.rightResolution.value;
 
       // Send settings to API and initiate video recording
       this.http
@@ -128,13 +152,24 @@ export class LiveFeedComponent implements OnInit {
         .subscribe((data) => {});
 
       // Renable input fields
-      this.leftFPS.enable();
-      this.leftResolution.enable();
-      this.leftFilename.enable();
-      this.rightFPS.enable();
-      this.rightResolution.enable();
+      // this.leftFPS.enable();
+      // this.leftResolution.enable();
+      // this.leftFilename.enable();
+      // this.rightFPS.enable();
+      // this.rightResolution.enable();
       this.rightFilename.enable();
     }
+  }
+
+  public updateFlourSettings(): void {
+    // const postSettings = {
+    //   exposure: this.flourExposure.value,
+    //   gain: this.flourGain.value,
+    //   fps: this.flourFPS.value,
+    // };
+    // this.http
+    //   .post(this.apiUrl + '/flour_settings', postSettings)
+    //   .subscribe((data) => {});
   }
 
   // Method to enable or disable tracking in the live feed

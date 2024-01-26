@@ -6,7 +6,7 @@ WormSpy is a software for controlling an open source tracking fluorescence micro
 
 ![](media/Demo.gif)
 
-Example with Brightfield and Fluorescent videos side by side:
+Example with Brightfield and Fluorescent videos side by side: (worm is expressing GCaMP3 via the myo-3 promoter, for expression in body-wall musculature.)
 ![](media/Demo2.gif)
 
 ## Getting started with WormSpy
