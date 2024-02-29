@@ -10,11 +10,9 @@ import numpy as np
 import pytz
 from datetime import datetime
 import os
-import io
-from matplotlib import pyplot as plt
 import copy
-# from PIL import Image
 import threading
+import imageio
 # from flask_sockets import Sockets
 # from flask_socketio import SocketIO, emit
 
@@ -38,10 +36,7 @@ TOTAL_MM_Y = 1.05  # total height of the FOV in mm
 # whether the x direction of the zaber is inverted from the video feed (-1 if they are inverted)
 ZABER_ORIENTATION_X = 1
 # whether the y direction of the zaber is inverted from the video feed (-1 if they are inverted)
-ZABER_ORIENTATION_Y = 1
-
-TOTAL_PIXELS_X = 480  # pixels across of the video feed
-TOTAL_PIXELS_Y = 300  # pixels across of the video feed
+ZABER_ORIENTATION_Y = -1
 
 # UNIT CONVERSIONS
 MM_MST = 20997  # millimeters per microstep
@@ -50,9 +45,6 @@ MM_MST = 20997  # millimeters per microstep
 MAXIMUM_DEVICE_XY_POSITION = 1066667
 MAXIMUM_DEVICE_Z_POSITION = 209974
 MINIMUM_DEVICE_POSITION = 0
-
-# DLC Live Settings
-downsample_by = 4
 
 # Global Variables for recording
 stop_stream = False
@@ -72,6 +64,11 @@ settings = {
     "filename_fl": 'default_fluorescent'
 }
 
+# DLC Live Settings
+downsample_by = 4
+TOTAL_PIXELS_X = 480  # pixels across of the video feed after downsampling
+TOTAL_PIXELS_Y = 300  # pixels across of the video feed after downsampling
+
 # Autofocus settings
 af_enabled = False
 start_af = False
@@ -89,9 +86,9 @@ nodeIndex = 0
 
 # variables for histogram
 hist_frame = None
-
+ 
 # Fluorescent Camera Settings
-fluorExposure = 10000
+fluorExposure = 40000
 fluorGain = 0
 
 @app.route("/")
@@ -140,6 +137,7 @@ def video_feed():
                 # zMotor = device_listZ[0]
                 # device_list[0].
                 firstIt = True
+                counter = 0
                 while (cap.isOpened()):
                     # Read a frame from the video capture
                     success, frame = cap.read()
@@ -162,16 +160,20 @@ def video_feed():
                             xPos = xMotor.get_position(unit=Units.NATIVE)
                             yPos = yMotor.get_position(unit=Units.NATIVE)
                             start_tracking = False
-                        if is_tracking:
+                        if is_tracking and counter % 1 == 0:
                             xPos, yPos, xCmd, yCmd = trackWorm(
                                 (nodePointX, nodePointY), xMotor, yMotor, xPos, yPos)
+                        counter += 1
                         # Reinitialize file recording
                         if start_recording:
                             print("Start Recording")
                             dt = datetime.now(tz=timeZone)
                             dtstr = '_' + dt.strftime("%d-%m-%Y_%H-%M-%S")
-                            out.open(settings["filepath"] + settings["filename"] + dtstr + '.avi',
-                                     fourcc, settings["fps"], settings["resolution"], isColor=False)
+                            #save as gif cuz fuck opencv
+                            output_filename = settings["filepath"] + settings["filename"] + dtstr + '.gif'
+                            frames = []  # List to store frames for the GIF
+                           # out.open(settings["filepath"] + settings["filename"] + dtstr + '.avi',
+                           #          fourcc, settings["fps"], settings["resolution"], isColor=False)
                             start_recording = False
                             is_recording = True
                             csvDump = np.zeros((1, 2))
@@ -185,11 +187,15 @@ def video_feed():
                             csvDump = np.append(
                                 csvDump, [[xCmd, yCmd]], axis=0)
                             im_out = cv2.resize(frame, [cap.get(cv2.CAP_PROP_FRAME_WIDTH), cap.get(cv2.CAP_PROP_FRAME_HEIGHT)])
-                            out.write(im_out)
+                            #out.write(im_out)
+                            # add frame to gif buffer
+                            frames.append(im_out)
                         # convert recording buffer to file
                         if stop_recording:
                             print("Stopped Recording")
-                            out.release()
+                            #out.release()
+                            #save gif file
+                            imageio.mimsave(output_filename, frames, 'GIF', fps=10)
                             dt = datetime.now()
                             dtstr = '_' + dt.strftime("%d-%m-%Y_%H-%M-%S")
                             np.savetxt(
@@ -227,7 +233,7 @@ def video_feed():
                         yield (b'--frame\r\n'
                                b'Content-Type: image/jpeg\r\n\r\n' + jpeg.tobytes() + b'\r\n')
                     else:
-                        # If the frame was not successfully read, yield a blank frame
+                        # If the frame was not successfully read, yield a "blank frame
                         yield (b'--frame\r\n'
                                b'Content-Type: image/jpeg\r\n\r\n\r\n')
     # Return the video feed as a multipart/x-mixed-replace response
@@ -239,7 +245,7 @@ def video_feed():
 def video_feed_fluorescent():
     global rightCam, stop_stream
     cap2 = EasyPySpin.VideoCapture(rightCam)
-
+    # Check if the camera is opened successfully
     if not cap2.isOpened():
         print("Camera can't open\nexit")
         return -1
@@ -255,8 +261,11 @@ def video_feed_fluorescent():
             success, frame = cap2.read()
             # Check if the frame was successfully read
             if success:
+                # Apply the jet color map to the frame
+                frame_8bit = cv2.normalize(frame, None, 0, 255, cv2.NORM_MINMAX, dtype=cv2.CV_8U)
+                #frame_8bit_c = cv2.applyColorMap(frame_8bit, cv2.COLORMAP_JET)
                 # hist_frame = frame
-                hist_frame = copy.copy(frame)
+                hist_frame = copy.copy(frame_8bit)
                 if start_recording_fl:
                     print("Start Fluorescent Recording")
                     # out.open(settings["filepath_fl"] + settings["filename_fl"], fourcc, float(settings["fps_fl"]), settings["resolution_fl"], isColor=False)
@@ -279,7 +288,7 @@ def video_feed_fluorescent():
                     is_recording = False
                     stop_recording_fl = False
 
-                ret, jpeg = cv2.imencode('.png', frame)
+                ret, jpeg = cv2.imencode('.png', frame_8bit)
                 # Yield the encoded frame
                 yield (b'--frame\r\n'
                        b'Content-Type: image/jpeg\r\n\r\n' + jpeg.tobytes() + b'\r\n')
@@ -310,12 +319,12 @@ def get_hist():
             if current_frame is not None:
                 # print(hist_frame.shape[0])
                 # buffer = io.BytesIO()
-                hist_frame_8bit = cv2.normalize(current_frame, None, 0, 255, cv2.NORM_MINMAX, dtype=cv2.CV_8U)
+                #hist_frame_8bit = cv2.normalize(current_frame, None, 0, 255, cv2.NORM_MINMAX, dtype=cv2.CV_8U)
                 hist_size = 256
                 hist_w = 512
                 hist_h = 400
                 bin_w = int(round(hist_w / hist_size))
-                hist = cv2.calcHist(hist_frame_8bit, [0], None, [hist_size], (0, 256), accumulate=False)
+                hist = cv2.calcHist(current_frame, [0], None, [hist_size], (0, 256), accumulate=False)
                 
                 norm_hist = cv2.normalize(hist, hist, 0, hist_h, cv2.NORM_MINMAX)
                 histImage = np.zeros((hist_h, hist_w, 3), dtype=np.uint8)
@@ -513,16 +522,17 @@ def trackWorm(input, deviceX: Device, deviceY: Device, deviceXPos, deviceYPos):
     xCmdAmt = master[0] * MM_MST
     yCmdAmt = master[1] * MM_MST
 
+    # chill factor is used to slow down the movement of the stage
+    chill_factor = 15
     # move device if the bounds of the device are not exceeded
     if (deviceXPos + xCmdAmt/10 < MAXIMUM_DEVICE_XY_POSITION
         or deviceXPos + xCmdAmt/10 > MINIMUM_DEVICE_POSITION
         or deviceYPos + yCmdAmt/10 < MAXIMUM_DEVICE_XY_POSITION
             or deviceYPos + yCmdAmt/10 > MINIMUM_DEVICE_POSITION):
         deviceX.generic_command_no_response(
-            command=CommandCode.MOVE_RELATIVE, data=int(xCmdAmt/10))
+            command=CommandCode.MOVE_RELATIVE, data=int(xCmdAmt/chill_factor))
         deviceY.generic_command_no_response(
-            command=CommandCode.MOVE_RELATIVE, data=int(yCmdAmt/10))
-
+            command=CommandCode.MOVE_RELATIVE, data=int(yCmdAmt/chill_factor))
     return (deviceXPos + xCmdAmt/10), (deviceYPos + yCmdAmt/10), xCmdAmt, yCmdAmt
 
 
