@@ -2,17 +2,17 @@ from flask import Flask, request, Response, jsonify, render_template, abort
 from flask_cors import CORS, cross_origin
 import EasyPySpin
 import cv2
-from dlclive import DLCLive, Processor
 import math
+from zaber_motion.ascii import Connection, Device
 from zaber_motion import Library, Units
-from zaber_motion.binary import Connection, Device, CommandCode
 import numpy as np
 import pytz
 from datetime import datetime
-import os
+import pathlib
 import copy
-import threading
-import imageio
+from skimage.measure import label, regionprops
+from skimage import filters
+from Controller import start_controller
 # from flask_sockets import Sockets
 # from flask_socketio import SocketIO, emit
 
@@ -28,6 +28,8 @@ Library.enable_device_db_store()
 
 # Start the Flask app locally on host IP address 127.0.0.1
 # python -m flask run --host=127.0.0.1
+
+# HARD CODED VARIABLES vvv
 
 # SET UP CONFIGURATION
 TOTAL_MM_X = 1.3125  # total width of the FOV in mm
@@ -52,22 +54,22 @@ start_recording = False
 stop_recording = False
 start_recording_fl = False
 stop_recording_fl = False
+
 timeZone = pytz.timezone("US/Eastern")
 settings = {
-    "resolution": (1920, 1200),
     "fps": 10,
-    "filepath": 'D:\WormSpy_video\Tracking',
-    "filename": 'default.avi',
-    "resolution_fl": (960, 600),
-    "fps_fl": 10,
-    "filepath_fl": 'D:\WormSpy_video\Calcium',
-    "filename_fl": 'default_fluorescent'
+    "filepath": str(pathlib.Path.home() / 'WormSpy_video'),
+    "filename": 'default',
+    # "fps_fl": 10,
+    # "filename_fl": 'default_fluorescent'
 }
 
 # DLC Live Settings
-downsample_by = 4
-TOTAL_PIXELS_X = 480  # pixels across of the video feed after downsampling
-TOTAL_PIXELS_Y = 300  # pixels across of the video feed after downsampling
+# from dlclive import DLCLive, Processor
+# Import the DLC NN model
+# dlc_proc = Processor()
+# dlc_live = DLCLive(r'C:\Users\User\Documents\WormSpy\DLC_models/3-node',
+#                    processor=dlc_proc, display=False)
 
 # Autofocus settings
 af_enabled = False
@@ -76,10 +78,11 @@ start_af = False
 # Intial Camera Settings
 leftCam = None
 rightCam = None
-XYmotorport = 'COM4'
+XYmotorport = 'COM6'
 Zmotorport = 'COM3'
 
 # Tracking Variables
+track_algorithm = 0
 is_tracking = False
 start_tracking = False
 nodeIndex = 0
@@ -106,127 +109,113 @@ def video_feed():
     if not cap.isOpened():
         print("Camera can't open\nexit")
         return -1
-
-    # Import the DLC NN model
-    dlc_proc = Processor()
-    dlc_live = DLCLive('../../../DLC_models/3-node',
-                       processor=dlc_proc, display=False)
-
+    
     # function to generate a stream of image frames for the tracking video feed
     def gen():
-        global start_recording, stop_recording, settings, is_tracking, start_tracking, serialPort, af_enabled, start_af, stop_stream, nodeIndex
+        global xMotor, yMotor, zMotor, start_recording, stop_recording, settings, is_tracking, start_tracking, serialPort, af_enabled, start_af, stop_stream, nodeIndex, track_algorithm
         start_af = False
         start_recording = False
         stop_recording = False
         is_recording = False
-        #afRollingAvg = []
-        #afMotorPos = []
+        worm_coords = [0, 0]
         xPos = 0
         yPos = 0
-        #zPos = 0
         xCmd = 0
         yCmd = 0
-        fourcc = cv2.VideoWriter_fourcc(*'MJPG')
+        fourcc = cv2.VideoWriter_fourcc(*'XVID')
         out = cv2.VideoWriter()
         with Connection.open_serial_port(XYmotorport) as connection:
             with Connection.open_serial_port(Zmotorport) as connection2:
-                device_listXY = connection.detect_devices()
-                # device_listZ = connection2.detect_devices() # Error occuring here
-                xMotor = device_listXY[0]
-                yMotor = device_listXY[1]
-                # zMotor = device_listZ[0]
-                # device_list[0].
+                connection.enable_alerts()
+                connection2.enable_alerts()
+                horizontal_motors = connection.detect_devices()
+                vertical_motor = connection2.detect_devices()
+                print("Found {} devices on " + XYmotorport.format(len(horizontal_motors)))
+                print("Found {} devices on " + Zmotorport.format(len(vertical_motor)))
+
+                device_X = horizontal_motors[0]
+                device_Y = horizontal_motors[1]
+                device_Z = vertical_motor[0]
+
+                xMotor = device_X.get_axis(1)
+                yMotor = device_Y.get_axis(1)
+                zMotor = device_Z.get_axis(1)
+                
                 firstIt = True
                 counter = 0
                 while (cap.isOpened()):
                     # Read a frame from the video capture
                     success, frame = cap.read()
+                    resolution = cap.get(cv2.CAP_PROP_FRAME_WIDTH), cap.get(cv2.CAP_PROP_FRAME_HEIGHT)
                     # Check if the frame was successfully read
                     if stop_stream:
                         abort(200)
-                    elif success:
-                        # Resize the image to be 256x256
-                        img_dlc = cv2.resize(
-                            frame, None, fx=1/downsample_by, fy=1/downsample_by)
-                        if firstIt:
-                            dlc_live.init_inference(img_dlc)
-                            firstIt = False
-                        poseArr = dlc_live.get_pose(img_dlc)
-                        posArr = poseArr[:, [0, 1]]
-                        nodePointX = poseArr[nodeIndex, 0]
-                        nodePointY = poseArr[nodeIndex, 1]
-                        # confArr = poseArr[:, [2]]
+                    if success:
+                        previous_worm_coords = None
                         if start_tracking:
                             xPos = xMotor.get_position(unit=Units.NATIVE)
                             yPos = yMotor.get_position(unit=Units.NATIVE)
                             start_tracking = False
                         if is_tracking and counter % 1 == 0:
+                            if track_algorithm == 0:
+                                worm_coords = tracking_light_thresh(frame, previous_worm_coords)
+                            elif track_algorithm == 1:
+                                worm_coords = tracking_dark_thresh(frame, previous_worm_coords)
+                            elif track_algorithm == 2:
+                                dlc_live = None
+                                poseArr = DLC_tracking(dlc_live,firstIt,frame)
+                                posArr = poseArr[:, [0, 1]]
+                                worm_coords[0] = posArr[nodeIndex, 0]
+                                worm_coords[1] = posArr[nodeIndex, 1]
+                            previous_worm_coords = worm_coords  
                             xPos, yPos, xCmd, yCmd = trackWorm(
-                                (nodePointX, nodePointY), xMotor, yMotor, xPos, yPos)
+                                (worm_coords[0], worm_coords[1]), xMotor, yMotor, xPos, yPos, resolution)
                         counter += 1
                         # Reinitialize file recording
                         if start_recording:
                             print("Start Recording")
                             dt = datetime.now(tz=timeZone)
                             dtstr = '_' + dt.strftime("%d-%m-%Y_%H-%M-%S")
-                            #save as gif cuz fuck opencv
-                            output_filename = settings["filepath"] + settings["filename"] + dtstr + '.gif'
-                            frames = []  # List to store frames for the GIF
-                           # out.open(settings["filepath"] + settings["filename"] + dtstr + '.avi',
-                           #          fourcc, settings["fps"], settings["resolution"], isColor=False)
+                            recording_folder = settings["filename"] + dtstr
+                            project_path: pathlib.Path = filepathToDirectory(settings["filepath"]) / recording_folder
+                            if not project_path.exists(): 
+                                project_path.mkdir(parents=True, exist_ok=False)
+                            avi_file = settings["filename"] + dtstr + '.avi'
+                            out.open(str(project_path / avi_file),
+                                     fourcc, settings["fps"], resolution, isColor=False)
                             start_recording = False
                             is_recording = True
                             csvDump = np.zeros((1, 2))
                         # add frame to recording buffer if currently recording
                         if is_recording:
-                            # factor2 = cap.get(3) / (cap.get(3) * SCALE_FACTOR)
-                            # posArr2 = [
-                            # tuple(map(lambda x: int(abs(x) * factor2), i)) for i in posArr]
-                            # posArr2 = np.append(posArr2, confArr, axis=1) # uncommentate to get confidence values in CSV, change shape to 0,3
-                            # poseDump = np.append(poseDump, posArr2, axis=0)
                             csvDump = np.append(
                                 csvDump, [[xCmd, yCmd]], axis=0)
-                            im_out = cv2.resize(frame, [cap.get(cv2.CAP_PROP_FRAME_WIDTH), cap.get(cv2.CAP_PROP_FRAME_HEIGHT)])
-                            #out.write(im_out)
-                            # add frame to gif buffer
-                            frames.append(im_out)
+                            out.write(frame)
                         # convert recording buffer to file
                         if stop_recording:
                             print("Stopped Recording")
-                            #out.release()
-                            #save gif file
-                            imageio.mimsave(output_filename, frames, 'GIF', fps=10)
+                            out.release()
                             dt = datetime.now()
                             dtstr = '_' + dt.strftime("%d-%m-%Y_%H-%M-%S")
+                            csv_file = settings["filename"] + dtstr + ".csv"
                             np.savetxt(
-                                settings["filepath"] + settings["filename"] + dtstr + ".csv", csvDump, delimiter=",")
+                                str(project_path / csv_file), csvDump, delimiter=",")
                             is_recording = False
                             stop_recording = False
-                        # get motor position on first iteration of focuslock
-                        # if start_af:
-                        #     zPos = zMotor.get_position(unit=Units.NATIVE)
-                        #     afMotorPos.append(zPos)
-                        #     start_af = False
-                        # # move motor to the position of the better focus value.
-                        # if af_enabled:
-                        #     focus = determineFocus(
-                        #         cv2.cvtColor(frame, cv2.COLOR_RGB2BGR))
-                        #     # mPos = zMotor.get_position(unit = Units.NATIVE)
-                        #     afRollingAvg.append(focus)
-                        #     if len(afRollingAvg) > 5:
-                        #         afRollingAvg.pop(0)
-                        #         # 100 Microsteps seems to be a good sweet spot
-                        #         afMotorPos.pop(0)
-                        #     zPos = setFocus(
-                        #         zMotor, focus, afRollingAvg, afMotorPos)
-                        #     afMotorPos.append(zPos)
-                        factor = cap.get(3) / (cap.get(3) * (1/downsample_by))
-                        posArr = [
-                            tuple(map(lambda x: int(abs(x) * factor), i)) for i in posArr]
+
+                        #factor = cap.get(3) / (cap.get(3) * (1/downsample_by))
+                        # posArr = [
+                        #     tuple(map(lambda x: int(abs(x) * factor), i)) for i in posArr]
+                        
                         # Change color to rgb from bgr to allow for the coloring of circles
                         frame = cv2.cvtColor(frame, cv2.COLOR_GRAY2RGB)
-                        # add skeleton overlay to image
-                        frame = draw_skeleton(frame, posArr)
+                        # Scale the CMS position up to the original frame size and draw on frame
+                        if worm_coords is not None:
+                            original_cms = (int(worm_coords[1] * 4), int(worm_coords[0] * 4))
+                            cv2.circle(frame, (int(original_cms[1]), int(original_cms[0])), 9, (0, 255, 0), -1)
+
+                        # add skeleton overlay to image for DLC
+                        #frame = draw_skeleton(frame, posArr)
 
                         ret, jpeg = cv2.imencode('.png', frame)
                         # Yield the encoded frame
@@ -238,7 +227,6 @@ def video_feed():
                                b'Content-Type: image/jpeg\r\n\r\n\r\n')
     # Return the video feed as a multipart/x-mixed-replace response
     return Response(gen(), mimetype='multipart/x-mixed-replace; boundary=frame')
-
 
 @cross_origin()
 @app.route('/video_feed_fluorescent')
@@ -259,6 +247,8 @@ def video_feed_fluorescent():
         while (cap2.isOpened()):
             # Read a frame from the video capture
             success, frame = cap2.read()
+            cap2_x = cap2.get(cv2.CAP_PROP_FRAME_WIDTH)
+            cap2_y = cap2.get(cv2.CAP_PROP_FRAME_HEIGHT)
             # Check if the frame was successfully read
             if success:
                 # Apply the jet color map to the frame
@@ -274,14 +264,18 @@ def video_feed_fluorescent():
                     frame_count = 0
                     dt = datetime.now(tz=timeZone)
                     dtstr = dt.strftime("%d-%m-%Y_%H-%M-%S")
-                    folder_name = settings["filename_fl"] + '_' + dtstr
-                    path = os.path.join(settings["filepath_fl"], folder_name)
-                    os.mkdir(path)
+                    folder_name = settings["filename"] + '_' + dtstr
+                    project_path: pathlib.Path = filepathToDirectory(settings["filepath"]) / folder_name / 'fluorescent_tiffs'
+                    if not project_path.exists(): 
+                        project_path.mkdir(parents=True, exist_ok=False)
+                    # path = os.path.join(settings["filepath"], folder_name)
+                    # os.mkdir(path)
                 if is_recording:
                     frame_count += 1
-                    frame = cv2.resize(frame, [cap2.get(cv2.CAP_PROP_FRAME_WIDTH), cap2.get(cv2.CAP_PROP_FRAME_HEIGHT)])
+                    frame = cv2.resize(frame, [cap2_x,cap2_y])
+                    frame_name = f"frame_{frame_count}.tiff"
                     cv2.imwrite(
-                        f"{settings['filepath_fl']}\\{folder_name}\\frame_{frame_count}.tiff", frame)
+                        str(project_path / frame_name), frame)
                 if stop_recording_fl:
                     print("Stopped Fluorescent Recording")
                     # out.release()
@@ -299,7 +293,77 @@ def video_feed_fluorescent():
     # Return the video feed as a multipart/x-mixed-replace response
     return Response(gen(), mimetype='multipart/x-mixed-replace; boundary=frame')
 
-lock = threading.Lock()
+# Function to process the frame and find the worm center of mass, might need to change it for your use case
+def tracking_light_thresh(frame, previous_cms):
+    # Apply gamma correction to the frame
+    gamma_inv = 1.5
+    table = np.array([((i / 255.0) ** gamma_inv) * 255 for i in np.arange(0, 256)]).astype("uint8")
+    gamma_corrected_frame =  cv2.LUT(frame, table)
+    # Apply Gaussian blur to the frame
+    blurred_frame = cv2.GaussianBlur(gamma_corrected_frame, (9, 9), 0)
+    grayscale_image = cv2.cvtColor(blurred_frame, cv2.COLOR_BGR2GRAY) if len(blurred_frame.shape) == 3 else blurred_frame
+    # Convert the image to a binary image
+    table = np.array([((i / 255.0) ** (1/gamma_inv)) * 255 for i in np.arange(0, 256)]).astype("uint8")
+    adjusted_gamma_image =  cv2.LUT(grayscale_image, table)
+    _, thresholded_image = cv2.threshold(adjusted_gamma_image, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+    # turn invert off for dark background, on for light
+    inverted_image = cv2.bitwise_not(thresholded_image)
+    kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (9,9))
+    eroded_image = cv2.erode(inverted_image, kernel, iterations=1)
+    processed_frame = cv2.dilate(eroded_image, kernel, iterations=1)
+    # find center of mass of the worm
+    labeled_image = label(processed_frame)  #scans binary image and groups connected pixels with the value 1 into labeled regions
+    regions = regionprops(labeled_image) #calculates properties of the labelled region, returns a list of regionProperties objects, each cor
+    #corresponding to properties of one of the labelled regions.
+    
+    # If there's a previous CMS, use it to find the closest blob
+    if previous_cms is not None:
+        distances = [] #empty list to store distances from the previous CMS to centroid of the current blobs. 
+        for region in regions:
+            # Calculate Euclidean distance from the previous CMS
+            distance = np.linalg.norm(np.array(region.centroid) - np.array(previous_cms))
+            distances.append((distance, region.centroid))
+        # Get the centroid with the minimum distance
+        if distances:
+            cms = min(distances, key=lambda x: x[0])[1]
+        else:
+            cms = None  # or some other default value
+        #after calculating distances for all regions, the one with the smallest distance to the previous CMS is considered to be the actual position of the worm (because of high frame rate)
+        #key=lambda x,  x[0] part is so that the min function uses the first element of each tuple (the distance) to find the minimum value. The [1] at the end extracts the centroid part of the tuple, which is the CMS.
+    else:
+        # If no previous CMS, assume the largest blob is the worm
+        regions_by_area = sorted(regions, key=lambda x: x.area, reverse=True)
+        #sort in descending order
+        # Keep the largest region
+        if regions_by_area:
+            cms = regions_by_area[0].centroid
+        else:
+            cms = None
+    return cms
+
+def DLC_tracking(dlc_live,firstIt,frame):
+    downsample_by = 4
+    # Resize the image to be 256x256
+    img_tracking = cv2.resize(
+        frame, None, fx=1/downsample_by, fy=1/downsample_by)
+    if firstIt: 
+        dlc_live.init_inference(img_tracking)
+        firstIt = False
+    poseArr = dlc_live.get_pose(img_tracking)
+    return poseArr
+
+def tracking_dark_thresh(frame):
+
+    color_frame = cv2.cvtColor(cv2.convertScaleAbs(frame, alpha=255/65535), cv2.COLOR_GRAY2BGR)
+    blurred = filters.gaussian(frame, sigma=3.0, preserve_range=True)
+    blurred_8bit = cv2.convertScaleAbs(blurred, alpha=(255/65535))
+    mean_value = np.mean(blurred_8bit)
+    _, thresh = cv2.threshold(blurred_8bit, mean_value, 255, cv2.THRESH_BINARY)
+    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
+    eroded = cv2.erode(thresh, kernel, iterations=3)
+    contours, _ = cv2.findContours(eroded, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    worm_contour = max(contours, key=cv2.contourArea)
+
 
 @cross_origin()
 @app.route("/get_hist")
@@ -347,29 +411,6 @@ def get_hist():
     return Response(gen(), mimetype='multipart/x-mixed-replace; boundary=frame')
 
 
-# @cross_origin()
-# @socketio.on('get_hist')
-# def get_hist():
-#     def gen():
-#         global hist_frame
-#         while True: 
-#             if hist_frame is not None:
-#                 buffer = io.BytesIO()
-#                 hist = cv2.calcHist([hist_frame], [0], None, [256], [1, 256])
-#                 hist = cv2.normalize(hist, hist, 1, 255, cv2.NORM_MINMAX)
-#                 # plt.hist(hist, 256, [1, 256])
-#                 plt.clf()
-#                 plt.plot(hist)
-#                 plt.savefig(buffer, format="png")
-#                 image_data = buffer.getvalue()
-#                 emit('get_hist', image_data)
-#             elif hist_frame is None:
-#                 # If the frame was not successfully read, yield a blank frame
-#                 emit('get_hist', None)
-#     # Start the generator as a background task
-#     socketio.start_background_task(gen)
-
-
 @cross_origin()
 @app.route("/start_recording", methods=['POST'])
 def start_recording():
@@ -377,14 +418,14 @@ def start_recording():
     # Update the settings with the data from the request body
     settings["filepath"] = request.json["filepath"]
     settings["filename"] = request.json["filename"]
-    settings["fps"] = request.json["fps"]
-    settings["resolution"] = (
-        request.json["resolution"], request.json["resolution"])
-    settings["filepath_fl"] = request.json["filepath_fl"]
-    settings["filename_fl"] = request.json["filename_fl"]
-    settings["fps_fl"] = request.json["fps_fl"]
-    settings["resolution_fl"] = (
-        request.json["resolution_fl"], request.json["resolution_fl"])
+    # settings["fps"] = request.json["fps"]
+    # settings["resolution"] = (
+    #     request.json["resolution"], request.json["resolution"])
+    # settings["filepath_fl"] = request.json["filepath_fl"]
+    # settings["filename_fl"] = request.json["filename_fl"]
+    # settings["fps_fl"] = request.json["fps_fl"]
+    # settings["resolution_fl"] = (
+    #     request.json["resolution_fl"], request.json["resolution_fl"])
     # Set the recording flag to True
     start_recording = True
     start_recording_fl = True
@@ -439,8 +480,9 @@ def node_index():
 @cross_origin()
 @app.route("/toggle_tracking", methods=['POST'])
 def toggle_tracking():
-    global is_tracking, start_tracking
+    global is_tracking, start_tracking, track_algorithm
     is_tracking = request.json['is_tracking'] == "True"
+    track_algorithm = request.json['tracking_algorithm']
     # start tracking if tracking has been requested
     start_tracking = is_tracking
     return str(is_tracking)
@@ -454,6 +496,16 @@ def toggle_af():
     # start focuslock if tracking has been requested
     start_af = af_enabled
     return str(af_enabled)
+
+@cross_origin()
+@app.route("/toggle_manual", methods=['POST'])
+def toggle_manual():
+    manual_mode = request.json['toggle_manual'] == "True"
+    start_controller(manual_mode)
+    return str(manual_mode)
+    # return str(
+    #     request.json['toggle_manual']
+    # )
 
 
 def determineFocus(image):
@@ -474,30 +526,26 @@ def setFocus(zMotor: Device, focus: int, afRollingAvg, afMotorPos):
         if focus < np.mean(afRollingAvg):
             # move towards previous position
             if mPosDiff <= 0 and mPos + step < MAXIMUM_DEVICE_Z_POSITION:
-                zMotor.generic_command_no_response(
-                    command=CommandCode.MOVE_RELATIVE, data=step)
+                zMotor.move_relative(step, unit = Units.NATIVE, wait_until_idle = False, velocity = 0, velocity_unit = Units.NATIVE, acceleration = 0, acceleration_unit = Units.NATIVE)
                 return (mPos + step)
             elif mPosDiff > 0 and mPos - step > MINIMUM_DEVICE_POSITION:
-                zMotor.generic_command_no_response(
-                    command=CommandCode.MOVE_RELATIVE, data=-step)
+                zMotor.move_relative(-step, unit = Units.NATIVE, wait_until_idle = False, velocity = 0, velocity_unit = Units.NATIVE, acceleration = 0, acceleration_unit = Units.NATIVE)
                 return (mPos - step)
         # current focus is better than previous focus
         elif focus > np.mean(afRollingAvg):
             if mPosDiff <= 0 and mPos - step > MINIMUM_DEVICE_POSITION:
-                zMotor.generic_command_no_response(
-                    command=CommandCode.MOVE_RELATIVE, data=-step)
+                zMotor.move_relative(-step, unit = Units.NATIVE, wait_until_idle = False, velocity = 0, velocity_unit = Units.NATIVE, acceleration = 0, acceleration_unit = Units.NATIVE)
                 return (mPos - step)
             elif mPosDiff > 0 and mPos + step < MAXIMUM_DEVICE_Z_POSITION:
-                zMotor.generic_command_no_response(
-                    command=CommandCode.MOVE_RELATIVE, data=step)
+                zMotor.move_relative(step, unit = Units.NATIVE, wait_until_idle = False, velocity = 0, velocity_unit = Units.NATIVE, acceleration = 0, acceleration_unit = Units.NATIVE)
                 return (mPos + step)
     return mPos
 
 
-def simpleToCenter(centroidX, centroidY):
+def simpleToCenter(centroidX, centroidY,resolution):
     # calculate the percent the position is from the edge of the frame
-    percentX = float(centroidX) / float(TOTAL_PIXELS_X)
-    percentY = float(centroidY) / float(TOTAL_PIXELS_Y)
+    percentX = float(centroidX) / float(resolution[0])
+    percentY = float(centroidY) / float(resolution[1])
 
     # millimeters the position is from the edge
     millisX = percentX * TOTAL_MM_X
@@ -507,16 +555,16 @@ def simpleToCenter(centroidX, centroidY):
     millisMoveX = ZABER_ORIENTATION_X * (millisX - TOTAL_MM_X/2)
     millisMoveY = ZABER_ORIENTATION_Y * (millisY - TOTAL_MM_Y/2)
 
-    return millisMoveX, millisMoveY
+    return millisMoveX, millisMoveY 
 
 
-def trackWorm(input, deviceX: Device, deviceY: Device, deviceXPos, deviceYPos):
-    # check if the input is NaN float value and return if so
+def trackWorm(input, deviceX: Device, deviceY: Device, deviceXPos, deviceYPos, resolution):
+    # check if the input is NaN float value and return if so  
     if math.isnan(input[0]):
         return 0, 0
 
     # relative worm position is relative to the (0, 0) of the video feed
-    master = simpleToCenter(input[0], input[1])
+    master = simpleToCenter(input[0], input[1], resolution)
 
     # convert the millimeters back to microsteps
     xCmdAmt = master[0] * MM_MST
@@ -526,15 +574,15 @@ def trackWorm(input, deviceX: Device, deviceY: Device, deviceXPos, deviceYPos):
     chill_factor = 15
     # move device if the bounds of the device are not exceeded
     if (deviceXPos + xCmdAmt/10 < MAXIMUM_DEVICE_XY_POSITION
-        or deviceXPos + xCmdAmt/10 > MINIMUM_DEVICE_POSITION
-        or deviceYPos + yCmdAmt/10 < MAXIMUM_DEVICE_XY_POSITION
-            or deviceYPos + yCmdAmt/10 > MINIMUM_DEVICE_POSITION):
-        deviceX.generic_command_no_response(
-            command=CommandCode.MOVE_RELATIVE, data=int(xCmdAmt/chill_factor))
-        deviceY.generic_command_no_response(
-            command=CommandCode.MOVE_RELATIVE, data=int(yCmdAmt/chill_factor))
+    or deviceXPos + xCmdAmt/10 > MINIMUM_DEVICE_POSITION
+    or deviceYPos + yCmdAmt/10 < MAXIMUM_DEVICE_XY_POSITION
+    or deviceYPos + yCmdAmt/10 > MINIMUM_DEVICE_POSITION):
+        # move the device to the new position. replace chill facor with velocity manipulation
+        x_data =int(xCmdAmt/chill_factor)
+        y_data =int(yCmdAmt/chill_factor)
+        deviceX.move_relative(x_data, unit = Units.NATIVE, wait_until_idle = False, velocity = 0, velocity_unit = Units.NATIVE, acceleration = 0, acceleration_unit = Units.NATIVE)
+        deviceY.move_relative(y_data, unit = Units.NATIVE, wait_until_idle = False, velocity = 0, velocity_unit = Units.NATIVE, acceleration = 0, acceleration_unit = Units.NATIVE)
     return (deviceXPos + xCmdAmt/10), (deviceYPos + yCmdAmt/10), xCmdAmt, yCmdAmt
-
 
 def draw_skeleton(frame, posArr):
     # Line and circle attributes
@@ -547,39 +595,27 @@ def draw_skeleton(frame, posArr):
     noseTipColor = (0, 0, 255)
     pharynxColor = (0, 128, 255)
     nerveRingColor = (0, 255, 255)
-    # midbody1Color = (0, 255, 0)
-    # midbody2Color = (255, 0, 0)
-    # midbody3Color = (255, 0, 255)
-    # tailBaseColor = (0, 0, 255)
-    # tailTipColor = (255, 0, 0)
     # confArr = poseArr[:, 2]
     # Overlay the tracking data onto the image
     # line from nose tip to pharynx
     cv2.line(frame, posArr[0], posArr[1], linecolor, lineThickness)
     # line from pharynx to nerve_ring
     cv2.line(frame, posArr[1], posArr[2], linecolor, lineThickness)
-    # line from nerve ring to midbody1
-    # cv2.line(frame, posArr[2], posArr[3], linecolor, lineThickness)
-    # # line from midbody1 to midbody2
-    # cv2.line(frame, posArr[3], posArr[4], linecolor, lineThickness)
-    # # line from midbody2 to midbody3
-    # cv2.line(frame, posArr[4], posArr[5], linecolor, lineThickness)
-    # # line from midbody3 to tail_base
-    # cv2.line(frame, posArr[5], posArr[6], linecolor, lineThickness)
-    # # line from tail_base to tail_tip
-    # cv2.line(frame, posArr[6], posArr[7], linecolor, lineThickness)
 
     # draw circles on top of each worm part
     cv2.circle(frame, posArr[0], circleRadius, noseTipColor, circleThickness)
     cv2.circle(frame, posArr[1], circleRadius, pharynxColor, circleThickness)
     cv2.circle(frame, posArr[2], circleRadius, nerveRingColor, circleThickness)
-    # cv2.circle(frame, posArr[3], circleRadius, midbody1Color, circleThickness)
-    # cv2.circle(frame, posArr[4], circleRadius, midbody2Color, circleThickness)
-    # cv2.circle(frame, posArr[5], circleRadius, midbody3Color, circleThickness)
-    # cv2.circle(frame, posArr[6], circleRadius, tailBaseColor, circleThickness)
-    # cv2.circle(frame, posArr[7], circleRadius, tailTipColor, circleThickness)
-
     return frame
+
+def filepathToDirectory(str_path: str):
+    # global record_path
+    path = pathlib.Path(str_path)
+
+    if not path.exists():
+        path.mkdir(parents=True)
+    
+    return path
 
 if __name__ == "__main__":
     app.run(host='127.0.0.1', port=5000, debug=False, threaded=True)

@@ -41,14 +41,14 @@ export class LiveFeedComponent implements OnInit {
 
   // settings to change file paths
   private recordingSettings = {
-    filepath: 'D:\\WormSpy_video\\Tracking\\',
+    filepath: 'D:\\WormSpy_video\\',
     filename: 'Tracking_Video',
-    resolution: 256,
-    fps: 10.0,
-    filepath_fl: 'D:\\WormSpy_video\\Calcium',
-    filename_fl: 'Tracking_Video_Fluorescent',
-    resolution_fl: 1024,
-    fps_fl: 10.0,
+    // resolution: 256,
+    // fps: 10.0,
+    // filepath_fl: 'D:\\WormSpy_video\\Calcium',
+    // filename_fl: 'Tracking_Video_Fluorescent',
+    // resolution_fl: 1024,
+    // fps_fl: 10.0,
   };
 
   // Serial Port
@@ -68,20 +68,23 @@ export class LiveFeedComponent implements OnInit {
   // leftResolution = new FormControl(1024);
 
   // right recording settings
-  rightFilename = new FormControl('Tracking_Video_Fluorescent');
-  rightFPS = new FormControl(10.0);
-  rightResolution = new FormControl(1024);
+  folder = new FormControl('D:\\WormSpy_Video\\')
+  filename = new FormControl('Project_1');
+  // rightFPS = new FormControl(10.0);
+  // rightResolution = new FormControl(1024);
 
   // flouresctent camera settings
   flourFPS = new FormControl(10.0);
   flourExposure = new FormControl(10000);
   flourGain = new FormControl(0);
-  
+
+  //tracking settings
+  trackingAlgorithm = 0;
 
   constructor(private http: HttpClient,
-    private sockService: SocketService) {}
+    private sockService: SocketService) { }
 
-  ngOnInit(): void {}
+  ngOnInit(): void { }
 
   // Method to toggle the live feed on or off
   public toggleLiveFeed(): void {
@@ -112,8 +115,8 @@ export class LiveFeedComponent implements OnInit {
       this.liveFeedUrlHistogram = '';
       this.http
         .post(this.apiUrl + '/stop_live_stream', {})
-        .subscribe((data) => {});
-      
+        .subscribe((data) => { });
+
     }
 
     // this.liveFeedUrlNormal = "https://cdn.wallpapersafari.com/84/92/C9qAjh.jpg";
@@ -131,25 +134,26 @@ export class LiveFeedComponent implements OnInit {
       // this.leftFilename.disable();
       // this.rightFPS.disable();
       // this.rightResolution.disable();
-      this.rightFilename.disable();
+      this.filename.disable();
 
       // Update Settings
       // this.recordingSettings.filename = this.leftFilename.value;
       // this.recordingSettings.fps = this.leftFPS.value;
       // this.recordingSettings.resolution = this.leftResolution.value;
-      this.recordingSettings.filename_fl = this.rightFilename.value;
+      this.recordingSettings.filepath = this.folder.value;
+      this.recordingSettings.filename = this.filename.value;
       // this.recordingSettings.fps_fl = this.rightFPS.value;
       // this.recordingSettings.resolution_fl = this.rightResolution.value;
 
       // Send settings to API and initiate video recording
       this.http
         .post(this.apiUrl + '/start_recording', this.recordingSettings)
-        .subscribe((data) => {});
+        .subscribe((data) => { });
     } else {
       // Terminate video recording
       this.http
         .post(this.apiUrl + '/stop_recording', {})
-        .subscribe((data) => {});
+        .subscribe((data) => { });
 
       // Renable input fields
       // this.leftFPS.enable();
@@ -157,7 +161,7 @@ export class LiveFeedComponent implements OnInit {
       // this.leftFilename.enable();
       // this.rightFPS.enable();
       // this.rightResolution.enable();
-      this.rightFilename.enable();
+      this.filename.enable();
     }
   }
 
@@ -177,12 +181,12 @@ export class LiveFeedComponent implements OnInit {
     this.isTrackingEnabled = !this.isTrackingEnabled;
     if (this.isTrackingEnabled) {
       this.http
-        .post(this.apiUrl + '/toggle_tracking', { is_tracking: 'True' })
-        .subscribe((data) => {});
+        .post(this.apiUrl + '/toggle_tracking', { is_tracking: 'True', tracking_algorithm: this.trackingAlgorithm })
+        .subscribe((data) => { });
     } else {
       this.http
-        .post(this.apiUrl + '/toggle_tracking', { is_tracking: 'False' })
-        .subscribe((data) => {});
+        .post(this.apiUrl + '/toggle_tracking', { is_tracking: 'False', tracking_algorithm: this.trackingAlgorithm })
+        .subscribe((data) => { });
     }
   }
 
@@ -201,31 +205,42 @@ export class LiveFeedComponent implements OnInit {
         }
         this.http
           .post(this.apiUrl + '/node_index', { index: index })
-          .subscribe((data) => {});
+          .subscribe((data) => { });
       }
     }
   }
 
   // Method to enable or disable autofocus in the live feed
   public toggleAutofocus(): void {
-    this.isAutofocusEnabled = !this.isAutofocusEnabled;
     if (this.isAutofocusEnabled) {
       this.http
         .post(this.apiUrl + '/toggle_af', { af_enabled: 'True' })
-        .subscribe((data) => {});
+        .subscribe((data) => { });
     } else {
       this.http
         .post(this.apiUrl + '/toggle_af', { af_enabled: 'False' })
-        .subscribe((data) => {});
+        .subscribe((data) => { });
+    }
+    this.isAutofocusEnabled = !this.isAutofocusEnabled;
+  }
+
+  public toggleManualMode(): void {
+    this.manualEnabled = !this.manualEnabled;
+    if (this.manualEnabled) {
+      this.http.post(this.apiUrl + '/toggle_manual', { toggle_manual: 'True' })
+      .subscribe((data) => { });
+    } else {
+      this.http.post(this.apiUrl + '/toggle_manual', { toggle_manual: 'False' })
+      .subscribe((data) => { });
     }
   }
 
-  selectDirectoryLeft(files: any) {
-    this.recordingSettings.filepath = files;
-  }
-  selectDirectoryRight(files: any) {
-    this.recordingSettings.filepath_fl = files;
-  }
+  // selectDirectoryLeft(files: any) {
+  //   this.recordingSettings.filepath = files;
+  // }
+  // selectDirectoryRight(files: any) {
+  //   this.recordingSettings.filepath_fl = files;
+  // }
 
   selectToCamera(inp: string) {
     if (inp == '4') {
