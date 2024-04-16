@@ -4,7 +4,7 @@ WormsPy is a software for controlling an open source tracking fluorescence micro
 
 <br/>
 Example of a worm expressing pansensory GCaMP being tracked using WormsPy
-![](media/WormsPy3.0.gif)
+![](media\WormsPy3.0.gif)
 
 Example with Brightfield and Fluorescent videos side by side: (worm is expressing GCaMP3 via the myo-3 promoter, for expression in body-wall musculature.)
 ![](media/Demo2.gif)
