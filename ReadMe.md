@@ -57,3 +57,14 @@ Provided as open source software under the MIT license, view the [license](LICEN
 
 ## WormsPy Dual Camera Build Guide
 For a full build guide please see our publication: (FORTHCOMING)
+
+## Features
+WormsPy was designed for calcium imaging in head sensory and interneurons in C. elegans. However, many applications are possible by changing the filter sets and objectives and with some slight tweaks to the software.
+The basic design of WormsPy includes:
+1. Dual video feeds
+2. Manual mode: Use a joystick to manually track animals. This also immensly helps with acquisition to begin tracking and recording and to manually find and maintain the focus.
+3. Three tracking modes, brightfield thresholding, epifluorescent marker tracking and DeepLabCut markerless pose estimation using a pretrained CNN.
+4. FocusLock, which counteracts focal drift once the desired focus has been found.
+5. Set your desired directory and project name. When recording, the software will write the left camera as a compressed .avi file using fourcc ‘MJPG’ and the right camera as an uncompressed 16bit .tif folder, as well as a .csv of motor commands to a new folder with the desired project name and directory.
+
+See the demonstration video here: https://youtu.be/mhyYDpziSE8
