@@ -67,22 +67,24 @@ def start_controller(manual_mode: bool):
                         input_x = joystick.get_axis(0)
                         input_y = joystick.get_axis(1)
                         input_z = joystick.get_axis(3)
-                        x_data = int(input_x * 3000)
-                        y_data = int(input_y * 3000) * -1
+                        x_data = int(input_x * 2000)
+                        y_data = int(input_y * 2000) * -1
                         z_data = int(input_z * 100)
-                        
-                        if (xPos + x_data < MAXIMUM_DEVICE_XY_POSITION
-                        or xPos + x_data > MINIMUM_DEVICE_POSITION):
-                            #print("Joystick input - X:", x_data)
-                            xMotor.move_relative(x_data, unit = Units.NATIVE, wait_until_idle = False, velocity = 0, velocity_unit = Units.NATIVE, acceleration = 0, acceleration_unit = Units.NATIVE)
-                        if (yPos + y_data < MAXIMUM_DEVICE_XY_POSITION
-                        or yPos + y_data > MINIMUM_DEVICE_POSITION):
-                            #print("Joystick input - Y:", y_data)
-                            yMotor.move_relative(y_data, unit = Units.NATIVE, wait_until_idle = False, velocity = 0, velocity_unit = Units.NATIVE, acceleration = 0, acceleration_unit = Units.NATIVE)
-                        if (zPos + z_data < MAXIMUM_DEVICE_Z_POSITION
-                        or zPos + z_data > MINIMUM_DEVICE_POSITION):
-                            #print("Joystick input - Z:", z_data)
-                            zMotor.move_relative(z_data, unit = Units.NATIVE, wait_until_idle = False, velocity = 0, velocity_unit = Units.NATIVE, acceleration = 0, acceleration_unit = Units.NATIVE)
+                      
+                    if (xPos + x_data < MAXIMUM_DEVICE_XY_POSITION
+                    or xPos + x_data > MINIMUM_DEVICE_POSITION):
+                        #print("Joystick input - X:", x_data)
+                        xMotor.move_relative(x_data, unit = Units.NATIVE, wait_until_idle = False, velocity = 0, velocity_unit = Units.NATIVE, acceleration = 5, acceleration_unit = Units.NATIVE)
+
+                    if (yPos + y_data < MAXIMUM_DEVICE_XY_POSITION
+                    or yPos + y_data > MINIMUM_DEVICE_POSITION):
+                        #print("Joystick input - Y:", y_data)
+                        yMotor.move_relative(y_data, unit = Units.NATIVE, wait_until_idle = False, velocity = 0, velocity_unit = Units.NATIVE, acceleration = 5, acceleration_unit = Units.NATIVE)
+
+                    if (zPos + z_data < MAXIMUM_DEVICE_Z_POSITION
+                    or zPos + z_data > MINIMUM_DEVICE_POSITION):
+                        #print("Joystick input - Z:", z_data)
+                        zMotor.move_relative(z_data, unit = Units.NATIVE, wait_until_idle = False, velocity = 0, velocity_unit = Units.NATIVE, acceleration = 5, acceleration_unit = Units.NATIVE)
 
             except KeyboardInterrupt:
                 print("Exiting...")

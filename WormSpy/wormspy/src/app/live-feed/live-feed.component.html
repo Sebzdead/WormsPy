@@ -12,7 +12,7 @@
       </div>
       <div class="floating-island">
         <div class="recording-settings" *ngIf="isLiveFeedEnabled">
-          <img src="assets/images/keyboardinput.png" alt="" id="keyboard">
+          <img src="assets/images/Controller.png" alt="" id="keyboard">
           <mat-button-toggle id="recordButton" (click)="toggleManualMode()">{{
             manualEnabled ? "Disable Manual Mode" : "Enable Manual Mode"
             }}</mat-button-toggle>
@@ -62,9 +62,9 @@
             <mat-form-field>
               <mat-label>Select Tracking Algorithm </mat-label>
               <mat-select [(value)]="trackingAlgorithm" [disabled]="isTrackingEnabled">
-                <mat-option value="0">Threshold Bright Background</mat-option>
-                <mat-option value="1">Threshold Dark Background</mat-option>
-                <mat-option value="2">DeepLabCut</mat-option>
+                <mat-option value="0">Threshold Bright Tracking</mat-option>
+                <mat-option value="1">Fluorescent Marker Tracking</mat-option>
+                <mat-option value="2">DeepLabCut Tracking</mat-option>
               </mat-select>
             </mat-form-field>
             <mat-button-toggle (click)="toggleTracking()">{{
@@ -121,7 +121,7 @@
             <!-- <img src="https://clipground.com/images/24-bit-png-256x256-17.png" alt="" id="hist"> -->
 
           </div>
-          <mat-button-toggle id="recordButton" (click)="updateFlourSettings()">{{
+          <mat-button-toggle id="recordButton" (click)="toggleHeatmap()">{{
             heatmapOn ? "Disable Heatmap" : "Enable Heatmap"
             }}</mat-button-toggle>
         </div>

@@ -74,9 +74,9 @@ export class LiveFeedComponent implements OnInit {
   // rightResolution = new FormControl(1024);
 
   // flouresctent camera settings
-  flourFPS = new FormControl(10.0);
-  flourExposure = new FormControl(10000);
-  flourGain = new FormControl(0);
+  // flourFPS = new FormControl(10.0);
+  // flourExposure = new FormControl(10000);
+  // flourGain = new FormControl(0);
 
   //tracking settings
   trackingAlgorithm = 0;
@@ -165,17 +165,26 @@ export class LiveFeedComponent implements OnInit {
     }
   }
 
-  public updateFlourSettings(): void {
-    // const postSettings = {
-    //   exposure: this.flourExposure.value,
-    //   gain: this.flourGain.value,
-    //   fps: this.flourFPS.value,
-    // };
-    // this.http
-    //   .post(this.apiUrl + '/flour_settings', postSettings)
-    //   .subscribe((data) => {});
+  // public updateFlourSettings(): void {
+  // const postSettings = {
+  //   exposure: this.flourExposure.value,
+  //   gain: this.flourGain.value,
+  //   fps: this.flourFPS.value,
+  // };
+  // this.http
+  //   .post(this.apiUrl + '/flour_settings', postSettings)
+  //   .subscribe((data) => {});
+  // }
+  public toggleHeatmap(): void {
+    this.heatmapOn = !this.heatmapOn;
+    if (this.heatmapOn) {
+      this.http.post(this.apiUrl + '/toggle_heatmap', { heatmap_enabled: 'True' })
+        .subscribe((data) => { });
+    } else {
+      this.http.post(this.apiUrl + '/toggle_heatmap', { heatmap_enabled: 'False' })
+        .subscribe((data) => { });
+    }
   }
-
   // Method to enable or disable tracking in the live feed
   public toggleTracking(): void {
     this.isTrackingEnabled = !this.isTrackingEnabled;
@@ -228,10 +237,10 @@ export class LiveFeedComponent implements OnInit {
     this.manualEnabled = !this.manualEnabled;
     if (this.manualEnabled) {
       this.http.post(this.apiUrl + '/toggle_manual', { toggle_manual: 'True' })
-      .subscribe((data) => { });
+        .subscribe((data) => { });
     } else {
       this.http.post(this.apiUrl + '/toggle_manual', { toggle_manual: 'False' })
-      .subscribe((data) => { });
+        .subscribe((data) => { });
     }
   }
 
