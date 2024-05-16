@@ -6,7 +6,7 @@
   <title>WormSpy</title>
   <base href="/">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <link rel="icon" type="image/x-icon" href="favicon.ico">
+  <link rel="icon" type="image/x-icon" href="{{url_for('static', filename='favicon.ico')}}">
   <link rel="preconnect" href="https://fonts.gstatic.com">
   <style type="text/css">
     @font-face {
@@ -244,16 +244,16 @@
       background-color: #181818
     }
   </style>
-  <link rel="stylesheet" href="static/styles.17959eeda48be91f.css" media="print" onload="this.media='all'"><noscript>
-    <link rel="stylesheet" href="static/styles.17959eeda48be91f.css">
+  <link rel="stylesheet" href="{{url_for('static', filename='styles.17959eeda48be91f.css')}}" media="print" onload="this.media='all'"><noscript>
+    <link rel="stylesheet" href="{{url_for('static', filename='styles.17959eeda48be91f.css')}}">
   </noscript>
 </head>
 
 <body class="mat-typography">
   <app-root></app-root>
-  <script src="static/runtime.19ffa101a4f7e94a.js" type="module"></script>
-  <script src="static/polyfills.7d6df5444e03dc98.js" type="module"></script>
-  <script src="static/main.fc0d0831cd4a84b2.js" type="module"></script>
+  <script src="{{url_for('static', filename='runtime.19ffa101a4f7e94a.js')}}" type="module"></script>
+  <script src="{{url_for('static', filename='polyfills.7d6df5444e03dc98.js')}}" type="module"></script>
+  <script src="{{url_for('static', filename='main.34bf79d23e35abdc.js')}}" type="module"></script>
 
 </body>
 

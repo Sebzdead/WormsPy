@@ -194,8 +194,9 @@ def video_feed():
                             dt = datetime.now()
                             dtstr = '_' + dt.strftime("%d-%m-%Y_%H-%M-%S")
                             csv_file = settings["filename"] + dtstr + ".csv"
+                            header = "X,Y"  # Add header
                             np.savetxt(
-                                str(project_path / csv_file), csvDump, delimiter=",")
+                                str(project_path / csv_file), csvDump, delimiter=",", header=header, comments="")
                             is_recording = False
                             stop_recording = False
                         # posArr = [

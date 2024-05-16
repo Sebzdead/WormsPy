@@ -38,10 +38,10 @@ More information for those interested in adapting WormSpy for their use case.
 The frontend of WormsPy was developed using Angular (HTML/SCSS/TS). To make adjustments the frontend, the installation of NodeJs is required. Run `npm install` in the `wormspy` folder after initially downloading the files. Adjustments to the frontend can be made in the live-feed component found in `wormspy/src/app/live-feed`. 
 
 To continue using flask as a web server and maintain `StartWormSpy.bat` as an easy launch option, follow these steps:
-1. Use `ng build` to create new production files in the `wormspy/dist` folder. 
+1. Use `ng build --configuration production --deploy-url static/` to create new production files in the `wormspy/dist` folder. 
 2. Place the `index.html` file into the `production/template` folder. 
-3. Place all other files found in the dist folder into the `production/static` folder. 
-4. In the `index.html` file, edit all import statements following this template: `<src>/<href>="{{url_for('static', filename='<filename>.js')}}"`
+3. Place all other files found in the dist folder into the `production/static` folder. Ignore assets unless those have been updated.
+<!-- 4. In the `index.html` file, edit all import statements following this template: `<src>/<href>="{{url_for('static', filename='<filename>.js')}}"` -->
 
 ### Backend
 WormSpy uses a Python Flask web server (`app.py`) to communicate with the frontend. A combination of the OpenCV and EasyPySpin libraries are used to communicate with the cameras. The Zaber Motion **Binary** library is used to control the Zaber motors. The DeepLabCut (DLC) Live library is used to identify _C. elegans_ in the live feed. 
