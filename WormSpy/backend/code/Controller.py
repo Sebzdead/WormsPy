@@ -74,12 +74,12 @@ def start_controller(manual_mode: bool):
                     if (xPos + x_data < MAXIMUM_DEVICE_XY_POSITION
                     or xPos + x_data > MINIMUM_DEVICE_POSITION):
                         #print("Joystick input - X:", x_data)
-                        xMotor.move_relative(x_data, unit = Units.NATIVE, wait_until_idle = False, velocity = 0, velocity_unit = Units.NATIVE, acceleration = 5, acceleration_unit = Units.NATIVE)
+                        xMotor.move_relative(x_data, unit = Units.NATIVE, wait_until_idle = False, velocity = 0, velocity_unit = Units.NATIVE, acceleration = 10, acceleration_unit = Units.NATIVE)
 
                     if (yPos + y_data < MAXIMUM_DEVICE_XY_POSITION
                     or yPos + y_data > MINIMUM_DEVICE_POSITION):
                         #print("Joystick input - Y:", y_data)
-                        yMotor.move_relative(y_data, unit = Units.NATIVE, wait_until_idle = False, velocity = 0, velocity_unit = Units.NATIVE, acceleration = 5, acceleration_unit = Units.NATIVE)
+                        yMotor.move_relative(y_data, unit = Units.NATIVE, wait_until_idle = False, velocity = 0, velocity_unit = Units.NATIVE, acceleration = 10, acceleration_unit = Units.NATIVE)
 
                     if (zPos + z_data < MAXIMUM_DEVICE_Z_POSITION
                     or zPos + z_data > MINIMUM_DEVICE_POSITION):
