@@ -1,6 +1,8 @@
 from flask import Flask, request, Response, jsonify, render_template, abort
 from flask_cors import CORS, cross_origin
 import EasyPySpin
+import threading
+import queue
 import cv2
 import math
 from zaber_motion.ascii import Connection, Device
@@ -57,6 +59,29 @@ track_algorithm = 0
 is_tracking = False
 start_tracking = False
 nodeIndex = 0
+# Initialize the queue
+frame_queue = queue.Queue()
+frame_queue2 = queue.Queue()
+
+# Function to write frames to video file
+def video_writer(out, frame_queue):
+    while True:
+        frame = frame_queue.get()
+        if frame is None:
+            break
+        out.write(frame)
+    out.release()
+
+    # Function to write frames to TIFF files
+def tiff_writer(project_path, frame_queue2):
+    frame_count = 0
+    while True:
+        frame = frame_queue2.get()
+        if frame is None:
+            break
+        frame_count += 1
+        frame_name = f"frame_{frame_count}.tiff"
+        cv2.imwrite(str(project_path / frame_name), frame)
 
 # DLC Live Settings
 # from dlclive import DLCLive, Processor
@@ -97,8 +122,6 @@ def video_feed():
         yPos = 0
         xCmd = 0
         yCmd = 0
-        new_stage_x = None
-        new_stage_y = None
         fourcc = cv2.VideoWriter_fourcc(*'XVID')
         out = cv2.VideoWriter()
         with Connection.open_serial_port(XYmotorport) as connection:
@@ -124,7 +147,7 @@ def video_feed():
                     initial_coords = [(resolution[0]/2), resolution[1]/2] # INITIALIZE IN CENTER OF FRAME
                     calculated_worm_coords = initial_coords
                     if stop_stream:
-                        abort(200) ### NOT SURE HOW TO PREVENT CRASH
+                        cap.release()
                     if success:
                         if start_tracking:
                             xPos = xMotor.get_position(unit=Units.NATIVE)
@@ -169,6 +192,9 @@ def video_feed():
                         #counter += 1
                         # Reinitialize file recording
                         if start_recording:
+                            # Start the writer thread
+                            writer_thread = threading.Thread(target=video_writer, args=(out, frame_queue))
+                            writer_thread.start()
                             print("Start Recording")
                             dt = datetime.now(tz=timeZone)
                             dtstr = '_' + dt.strftime("%d-%m-%Y_%H-%M-%S")
@@ -178,19 +204,19 @@ def video_feed():
                                 project_path.mkdir(parents=True, exist_ok=False)
                             avi_file = settings["filename"] + dtstr + '.avi'
                             out.open(str(project_path / avi_file),
-                                     fourcc, settings["fps"], resolution, isColor=False)
+                                    fourcc, settings["fps"], resolution, isColor=False)
                             start_recording = False
                             is_recording = True
                             csvDump = np.zeros((1, 2))
                         # add frame to recording buffer if currently recording
                         if is_recording:
-                            csvDump = np.append(
-                                csvDump, [[xCmd, yCmd]], axis=0)
-                            out.write(frame)
+                            csvDump = np.append(csvDump, [[xCmd, yCmd]], axis=0)
+                            frame_queue.put(frame)
                         # convert recording buffer to file
                         if stop_recording:
                             print("Stopped Recording")
-                            out.release()
+                            frame_queue.put(None)  # Signal the writer thread to stop
+                            writer_thread.join()  # Wait for the writer thread to finish
                             dt = datetime.now()
                             dtstr = '_' + dt.strftime("%d-%m-%Y_%H-%M-%S")
                             csv_file = settings["filename"] + dtstr + ".csv"
@@ -229,7 +255,7 @@ def video_feed_fluorescent():
         print("Camera can't open\nexit")
         return -1
     if stop_stream:
-        abort(200)
+        cap2.release()
     def gen():
         global heatmap_enabled, start_recording_fl, stop_recording_fl, settings, is_tracking, serialPort, hist_frame
         is_recording = False
@@ -249,27 +275,28 @@ def video_feed_fluorescent():
                     print("Start Fluorescent Recording")
                     start_recording_fl = False
                     is_recording = True
-                    frame_count = 0
                     dt = datetime.now(tz=timeZone)
                     dtstr = dt.strftime("%d-%m-%Y_%H-%M-%S")
                     folder_name = settings["filename"] + '_' + dtstr
                     project_path: pathlib.Path = filepathToDirectory(settings["filepath"]) / folder_name / 'fluorescent_tiffs'
                     if not project_path.exists(): 
                         project_path.mkdir(parents=True, exist_ok=False)
+                    # Start the writer thread
+                    writer_thread = threading.Thread(target=tiff_writer, args=(project_path, frame_queue2))
+                    writer_thread.start()
                 if is_recording:
-                    frame_count += 1
                     frame = cv2.resize(frame, resolution)
-                    frame_name = f"frame_{frame_count}.tiff"
-                    cv2.imwrite(
-                        str(project_path / frame_name), frame)
+                    frame_queue2.put(frame)  # Add frame to queue instead of writing directly
                 if stop_recording_fl:
                     print("Stopped Fluorescent Recording")
                     is_recording = False
                     stop_recording_fl = False
+                    frame_queue2.put(None)  # Signal the writer thread to stop
+                    writer_thread.join()  # Wait for the writer thread to finish
+
                 ret, jpeg = cv2.imencode('.png', frame_8bit)
-                # Yield the encoded frame
                 yield (b'--frame\r\n'
-                       b'Content-Type: image/jpeg\r\n\r\n' + jpeg.tobytes() + b'\r\n')
+                    b'Content-Type: image/jpeg\r\n\r\n' + jpeg.tobytes() + b'\r\n')
             else:
                 # If the frame was not successfully read, yield a blank frame
                 yield (b'--frame\r\n'
@@ -287,15 +314,10 @@ def get_hist():
         while True: 
             if first:
                 first = False
-                print(hist_frame)
             if hist_frame is not None:
                 current_frame = hist_frame
             current_frame = hist_frame
-                
             if current_frame is not None:
-                # print(hist_frame.shape[0])
-                # buffer = io.BytesIO()
-                #hist_frame_8bit = cv2.normalize(current_frame, None, 0, 255, cv2.NORM_MINMAX, dtype=cv2.CV_8U)
                 hist_size = 256
                 hist_w = 512
                 hist_h = 400
