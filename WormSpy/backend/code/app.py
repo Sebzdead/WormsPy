@@ -1,7 +1,7 @@
 from flask import Flask, request, Response, jsonify, render_template, abort
 from flask_cors import CORS, cross_origin
 import EasyPySpin
-import threading
+from threading import Thread, Lock
 import queue
 import cv2
 import math
@@ -13,6 +13,7 @@ import pytz
 from datetime import datetime
 import pathlib
 import copy
+import pygame
 from skimage.measure import label, regionprops
 from skimage.filters import threshold_yen
 from Controller import start_controller
@@ -27,6 +28,8 @@ app.config['CORS_HEADERS'] = 'Content-Type'
 
 # HARD CODED VARIABLES
 
+mutex = Lock()
+isManualEnabled = False
 # Intial Camera Settings
 leftCam = None # leave as None, will be set by the user in the UI
 rightCam = None # leave as None, will be set by the user in the UI
@@ -111,6 +114,8 @@ def video_feed():
     if not cap.isOpened():
         print("Camera can't open\nexit")
         return -1
+    if stop_stream:
+        cap.release()
     # function to generate a stream of image frames for the tracking video feed
     def gen():
         global xMotor, yMotor, zMotor, start_recording, stop_recording, settings, is_tracking, start_tracking, serialPort, af_enabled, start_af, stop_stream, nodeIndex, track_algorithm
@@ -146,8 +151,6 @@ def video_feed():
                     resolution = cap.get(cv2.CAP_PROP_FRAME_WIDTH), cap.get(cv2.CAP_PROP_FRAME_HEIGHT)
                     initial_coords = [(resolution[0]/2), resolution[1]/2] # INITIALIZE IN CENTER OF FRAME
                     calculated_worm_coords = initial_coords
-                    if stop_stream:
-                        cap.release()
                     if success:
                         if start_tracking:
                             xPos = xMotor.get_position(unit=Units.NATIVE)
@@ -187,13 +190,15 @@ def video_feed():
                                 worm_coords = (posArr[nodeIndex, 0] , posArr[nodeIndex, 1])
                             # smoothed = smoothing(worm_coords, previous_worm_coords) # SMOOTHING FUNCTION
                             calculated_worm_coords = (worm_coords[0] , worm_coords[1]) # replace with smoothing once working
-                            xPos, yPos, xCmd, yCmd = trackWorm(
+                            # MUTEX POSITION 1
+                            if not mutex.locked():
+                                xPos, yPos, xCmd, yCmd = trackWorm(
                                 (calculated_worm_coords[0] , calculated_worm_coords[1]), xMotor, yMotor, xPos, yPos, resolution) # TRACKING FUNCTION
                         #counter += 1
                         # Reinitialize file recording
                         if start_recording:
                             # Start the writer thread
-                            writer_thread = threading.Thread(target=video_writer, args=(out, frame_queue))
+                            writer_thread = Thread(target=video_writer, args=(out, frame_queue))
                             writer_thread.start()
                             print("Start Recording")
                             dt = datetime.now(tz=timeZone)
@@ -282,7 +287,7 @@ def video_feed_fluorescent():
                     if not project_path.exists(): 
                         project_path.mkdir(parents=True, exist_ok=False)
                     # Start the writer thread
-                    writer_thread = threading.Thread(target=tiff_writer, args=(project_path, frame_queue2))
+                    writer_thread = Thread(target=tiff_writer, args=(project_path, frame_queue2))
                     writer_thread.start()
                 if is_recording:
                     frame = cv2.resize(frame, resolution)
@@ -420,8 +425,13 @@ def toggle_af():
 @cross_origin()
 @app.route("/toggle_manual", methods=['POST'])
 def toggle_manual():
+    global isManualEnabled
     manual_mode = request.json['toggle_manual'] == "True"
-    start_controller(manual_mode)
+    if isManualEnabled and not manual_mode: # Turning off manual mode
+        isManualEnabled = False
+    elif not isManualEnabled and manual_mode: # Turning on manual mode and starting controller
+        isManualEnabled = True
+        start_controller()
     return str(manual_mode)
 
 def determineFocus(image):
@@ -573,6 +583,93 @@ def filepathToDirectory(str_path: str):
     if not path.exists():
         path.mkdir(parents=True)
     return path
+
+def start_controller():
+    # Check if any joystick is connected
+    pygame.init()
+    pygame.joystick.init()
+
+    global isManualEnabled
+    
+    if pygame.joystick.get_count() > 0:
+        # Get the first joystick
+        joystick = pygame.joystick.Joystick(0)
+        joystick.init()
+
+        # Get the number of axes
+        num_axes = joystick.get_numaxes()
+
+        # Check if the joystick has at least 2 axes
+        if num_axes >= 2:
+            sticks_good = True
+            print("Joystick count: ", pygame.joystick.get_count())
+            print("Joystick axes: ", joystick.get_numaxes())
+        else:
+            print("Joystick does not have enough axes")
+    else:
+        print("No joystick connected.")
+
+    with Connection.open_serial_port(XYmotorport) as connection:
+        with Connection.open_serial_port(Zmotorport) as connection2:
+            #connection.enable_alerts()
+
+            horizontal_motors = connection.detect_devices()
+            vertical_motor = connection2.detect_devices()
+            print("Found {} devices on COM6".format(len(horizontal_motors)))
+            print("Found {} devices on COM3".format(len(vertical_motor)))
+
+            device_X = horizontal_motors[0]
+            device_Y = horizontal_motors[1]
+            device_Z = vertical_motor[0]
+
+            xMotor = device_X.get_axis(1)
+            print("X Motor: ", xMotor)
+            yMotor = device_Y.get_axis(1)
+            print("Y Motor: ", yMotor)
+            zMotor = device_Z.get_axis(1)
+            print("Z Motor: ", zMotor)
+
+            try: 
+                while isManualEnabled:
+                    
+                    pygame.event.pump()
+
+                    xPos = xMotor.get_position(unit=Units.NATIVE)
+                    yPos = yMotor.get_position(unit=Units.NATIVE)
+                    zPos = zMotor.get_position(unit=Units.NATIVE)
+
+                    if sticks_good == True:
+                        input_x = joystick.get_axis(0)
+                        input_y = joystick.get_axis(1)
+                        input_z = joystick.get_axis(3)
+                        x_data = int(input_x * 2000)
+                        y_data = int(input_y * 2000) * -1
+                        z_data = int(input_z * 100)
+                        # print(input_x, input_y, input_z)
+                      
+                    if ((xPos + x_data < MAXIMUM_DEVICE_XY_POSITION
+                    or xPos + x_data > MINIMUM_DEVICE_POSITION) and input_x != 0):
+                        #print("Joystick input - X:", x_data)
+                        mutex.acquire(blocking=True, timeout=-1)
+                        xMotor.move_relative(x_data, unit = Units.NATIVE, wait_until_idle = False, velocity = 0, velocity_unit = Units.NATIVE, acceleration = 5, acceleration_unit = Units.NATIVE)
+                        mutex.release()
+
+                    if ((yPos + y_data < MAXIMUM_DEVICE_XY_POSITION
+                    or yPos + y_data > MINIMUM_DEVICE_POSITION) and input_y != 0):
+                        #print("Joystick input - Y:", y_data)
+                        mutex.acquire(blocking=True, timeout=-1)
+                        yMotor.move_relative(y_data, unit = Units.NATIVE, wait_until_idle = False, velocity = 0, velocity_unit = Units.NATIVE, acceleration = 5, acceleration_unit = Units.NATIVE)
+                        mutex.release()
+
+                    if ((zPos + z_data < MAXIMUM_DEVICE_Z_POSITION
+                    or zPos + z_data > MINIMUM_DEVICE_POSITION) and input_z != 0):
+                        #print("Joystick input - Z:", z_data)
+                        zMotor.move_relative(z_data, unit = Units.NATIVE, wait_until_idle = False, velocity = 0, velocity_unit = Units.NATIVE, acceleration = 5, acceleration_unit = Units.NATIVE)
+
+            except KeyboardInterrupt:
+                print("Exiting...")
+                mutex.release()
+                pygame.quit()
 
 if __name__ == "__main__":
     app.run(host='127.0.0.1', port=5000, debug=False, threaded=True)
