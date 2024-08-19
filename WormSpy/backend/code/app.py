@@ -3,6 +3,9 @@ from flask_cors import CORS, cross_origin
 import EasyPySpin
 from threading import Thread, Lock
 import queue
+# Initialize the queue
+frame_queue = queue.Queue()
+frame_queue2 = queue.Queue()
 import cv2
 import math
 from zaber_motion.ascii import Connection, Device
@@ -23,11 +26,10 @@ app = Flask(__name__, template_folder='production\\templates',
 CORS(app, origins=['http://localhost:4200', 'http://localhost:5000', 'https://4dfklk7l-4200.use.devtunnels.ms'])
 app.config['CORS_HEADERS'] = 'Content-Type'
 
-# Start the Flask app locally on host IP address 127.0.0.1
+# Start the Flask app locally on host IP address 127.0.0.1 for testing
 # python -m flask run --host=127.0.0.1
 
 # HARD CODED VARIABLES
-
 mutex = Lock()
 isManualEnabled = False
 # Intial Camera Settings
@@ -62,18 +64,22 @@ track_algorithm = 0
 is_tracking = False
 start_tracking = False
 nodeIndex = 0
-# Initialize the queue
-frame_queue = queue.Queue()
-frame_queue2 = queue.Queue()
+# settings for the recording
+timeZone = pytz.timezone("US/Eastern")
+settings = {
+    "filepath": str(pathlib.Path.home() / 'WormSpy_video'),
+    "filename": 'default',}
 
 # Function to write frames to video file
-def video_writer(out, frame_queue):
+def jpeg_writer(project_path, frame_queue):
+    frame_count = 0
     while True:
         frame = frame_queue.get()
         if frame is None:
             break
-        out.write(frame)
-    out.release()
+        frame_count += 1
+        frame_name = f"frame_{frame_count}.jpeg"
+        cv2.imwrite(str(project_path / frame_name), frame)
 
     # Function to write frames to TIFF files
 def tiff_writer(project_path, frame_queue2):
@@ -92,12 +98,6 @@ def tiff_writer(project_path, frame_queue2):
 # dlc_proc = Processor()
 # dlc_live = DLCLive(r'C:\Users\User\Documents\WormSpy\DLC_models/3-node',
 #                    processor=dlc_proc, display=False)
-
-timeZone = pytz.timezone("US/Eastern")
-settings = {
-    "fps": 10,
-    "filepath": str(pathlib.Path.home() / 'WormSpy_video'),
-    "filename": 'default',}
 
 @app.route("/")
 @cross_origin()
@@ -127,8 +127,6 @@ def video_feed():
         yPos = 0
         xCmd = 0
         yCmd = 0
-        fourcc = cv2.VideoWriter_fourcc(*'XVID')
-        out = cv2.VideoWriter()
         with Connection.open_serial_port(XYmotorport) as connection:
             with Connection.open_serial_port(Zmotorport) as connection2:
                 connection.enable_alerts()
@@ -197,21 +195,18 @@ def video_feed():
                         #counter += 1
                         # Reinitialize file recording
                         if start_recording:
-                            # Start the writer thread
-                            writer_thread = Thread(target=video_writer, args=(out, frame_queue))
-                            writer_thread.start()
-                            print("Start Recording")
-                            dt = datetime.now(tz=timeZone)
-                            dtstr = '_' + dt.strftime("%d-%m-%Y_%H-%M-%S")
-                            recording_folder = settings["filename"] + dtstr
-                            project_path: pathlib.Path = filepathToDirectory(settings["filepath"]) / recording_folder
-                            if not project_path.exists(): 
-                                project_path.mkdir(parents=True, exist_ok=False)
-                            avi_file = settings["filename"] + dtstr + '.avi'
-                            out.open(str(project_path / avi_file),
-                                    fourcc, settings["fps"], resolution, isColor=False)
+                            print("Start Brightfield Recording")
                             start_recording = False
                             is_recording = True
+                            dt = datetime.now(tz=timeZone)
+                            dtstr = dt.strftime("%d-%m-%Y_%H-%M-%S")
+                            folder_name = settings["filename"] + '_' + dtstr
+                            project_path: pathlib.Path = filepathToDirectory(settings["filepath"]) / folder_name / 'brightfield_jpegs'
+                            if not project_path.exists(): 
+                                project_path.mkdir(parents=True, exist_ok=False)
+                            # Start the writer thread
+                            writer_thread = Thread(target=jpeg_writer, args=(project_path, frame_queue))
+                            writer_thread.start()
                             csvDump = np.zeros((1, 2))
                         # add frame to recording buffer if currently recording
                         if is_recording:
@@ -225,15 +220,16 @@ def video_feed():
                             dt = datetime.now()
                             dtstr = '_' + dt.strftime("%d-%m-%Y_%H-%M-%S")
                             csv_file = settings["filename"] + dtstr + ".csv"
+                            csv_file_path = pathlib.Path(settings["filepath"]) / folder_name / csv_file
                             header = "X,Y"  # Add header
                             np.savetxt(
-                                str(project_path / csv_file), csvDump, delimiter=",", header=header, comments="")
+                                str(csv_file_path), csvDump, delimiter=",", header=header, comments="")
                             is_recording = False
                             stop_recording = False
                         # posArr = [
                         #     tuple(map(lambda x: int(abs(x) * factor), i)) for i in posArr]
 
-                        # Change color to rgb from bgr to allow for the coloring of circles
+                        # Change color to rgb from gray to allow for the coloring of circles
                         frame = cv2.cvtColor(frame, cv2.COLOR_GRAY2RGB)
                         # draw CMS position on frame
                         cv2.circle(frame, (int(calculated_worm_coords[0]), int(calculated_worm_coords[1])), 9, (0, 255, 0), -1)
