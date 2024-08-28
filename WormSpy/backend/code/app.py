@@ -70,18 +70,6 @@ settings = {
     "filepath": str(pathlib.Path.home() / 'WormSpy_video'),
     "filename": 'default',}
 
-# Function to write frames to video file
-def jpeg_writer(project_path, frame_queue):
-    frame_count = 0
-    while True:
-        frame = frame_queue.get()
-        if frame is None:
-            break
-        frame_count += 1
-        frame_name = f"frame_{frame_count}.jpeg"
-        cv2.imwrite(str(project_path / frame_name), frame)
-
-    # Function to write frames to TIFF files
 def tiff_writer(project_path, frame_queue2):
     frame_count = 0
     while True:
@@ -149,74 +137,61 @@ def video_feed():
                     resolution = cap.get(cv2.CAP_PROP_FRAME_WIDTH), cap.get(cv2.CAP_PROP_FRAME_HEIGHT)
                     initial_coords = [(resolution[0]/2), resolution[1]/2] # INITIALIZE IN CENTER OF FRAME
                     calculated_worm_coords = initial_coords
+                    fps = 10 # MUST MANUALLY CHANGE :( depending on camera model you could detect it from the camera
+                    #check if frame is 8 bit and grayscale and convert if not
+                    if frame.dtype != np.uint8:
+                        frame = cv2.normalize(frame, None, 0, 255, cv2.NORM_MINMAX, dtype=cv2.CV_8U) 
+                    if len(frame.shape) == 3:
+                        frame = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+                    # Downsample the frame to 1/4 of the original size
+                    factor = 4
+                    frame_downsample = cv2.resize(frame, (int(frame.shape[1] / factor), int(frame.shape[0] / factor)), interpolation = cv2.INTER_AREA)
+                    height, width = frame_downsample.shape
+                    downsample_size = (int(height), int(width))
                     if success:
                         if start_tracking:
                             xPos = xMotor.get_position(unit=Units.NATIVE)
                             yPos = yMotor.get_position(unit=Units.NATIVE)
-                            # first_frame = True
                             start_tracking = False
                         if is_tracking: ### BUTTON HAS BEEN PRESSED
-                            #check if frame is 8 bit and grayscale and convert if not
-                            if frame.dtype != np.uint8:
-                                frame = cv2.normalize(frame, None, 0, 255, cv2.NORM_MINMAX, dtype=cv2.CV_8U) 
-                            if len(frame.shape) == 3:
-                                frame = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
                             if track_algorithm == 0: ### BRIGHT BACKGROUND THRESHOLDING
-                                # if first_frame == True:
-                                #     previous_worm_coords = None
-                                #     first_frame = False
-                                factor = 4 # rescale factor
-                                new_size = (int(frame.shape[1] / 4), int(frame.shape[0] / 4))  # (width, height)
-                                processed_frame = Thresh_Light_Background(frame, new_size)
-                                # frame = cv2.resize(processed_frame, (int(frame.shape[1]), int(frame.shape[0])), interpolation = cv2.INTER_AREA)
+                                processed_frame = Thresh_Light_Background(frame_downsample, downsample_size)
                                 worm_coords = find_worm_cms(processed_frame, factor, initial_coords)
                             elif track_algorithm == 1: ### FLUORESCENT THRESHOLDING
-                                # if first_frame == True:
-                                #     previous_worm_coords = None
-                                #     first_frame = False
-                                factor = 2 # rescale factor
-                                new_size = (int(frame.shape[1] / 4), int(frame.shape[0] / 4))  # (width, height)
-                                processed_frame = Thresh_Fluorescent_Marker(frame,new_size)
-                                # frame = cv2.resize(processed_frame, (int(frame.shape[1]), int(frame.shape[0])), interpolation = cv2.INTER_AREA)
+                                processed_frame = Thresh_Fluorescent_Marker(frame_downsample,downsample_size)
                                 worm_coords = find_worm_cms(processed_frame, factor, initial_coords)
                             elif track_algorithm == 2: ### DEEP LAB CUT TRACKING
                                 dlc_live = None # COMMENT OUT IF USING DLC
-                                factor = 4 # rescale factor
-                                new_size = (int(frame.shape[1] / 4), int(frame.shape[0] / 4))  # (width, height)
-                                poseArr = DLC_tracking(dlc_live,firstIt,frame,new_size, factor)
+                                poseArr = DLC_tracking(dlc_live,firstIt,frame_downsample,downsample_size, factor)
                                 posArr = poseArr[:, [0, 1]]
                                 worm_coords = (posArr[nodeIndex, 0] , posArr[nodeIndex, 1])
-                            # smoothed = smoothing(worm_coords, previous_worm_coords) # SMOOTHING FUNCTION
-                            calculated_worm_coords = (worm_coords[0] , worm_coords[1]) # replace with smoothing once working
+                            calculated_worm_coords = (worm_coords[0] , worm_coords[1])
                             # MUTEX POSITION 1
                             if not mutex.locked():
                                 xPos, yPos, xCmd, yCmd = trackWorm(
                                 (calculated_worm_coords[0] , calculated_worm_coords[1]), xMotor, yMotor, xPos, yPos, resolution) # TRACKING FUNCTION
-                        #counter += 1
                         # Reinitialize file recording
                         if start_recording:
-                            print("Start Brightfield Recording")
-                            start_recording = False
                             is_recording = True
                             dt = datetime.now(tz=timeZone)
                             dtstr = dt.strftime("%d-%m-%Y_%H-%M-%S")
                             folder_name = settings["filename"] + '_' + dtstr
-                            project_path: pathlib.Path = filepathToDirectory(settings["filepath"]) / folder_name / 'brightfield_jpegs'
+                            project_path: pathlib.Path = filepathToDirectory(settings["filepath"]) / folder_name
                             if not project_path.exists(): 
                                 project_path.mkdir(parents=True, exist_ok=False)
-                            # Start the writer thread
-                            writer_thread = Thread(target=jpeg_writer, args=(project_path, frame_queue))
-                            writer_thread.start()
+                            # initialize video writer
+                            fourcc = cv2.VideoWriter_fourcc(*'XVID')
+                            video_writer = cv2.VideoWriter(str(project_path / "brightfield.avi"), fourcc, fps, (frame.shape[1], frame.shape[0]), isColor=False) # FUCK THIS
                             csvDump = np.zeros((1, 2))
+                            print("Start Brightfield Recording")
+                            start_recording = False
                         # add frame to recording buffer if currently recording
                         if is_recording:
                             csvDump = np.append(csvDump, [[xCmd, yCmd]], axis=0)
-                            frame_queue.put(frame)
+                            video_writer.write(frame)
                         # convert recording buffer to file
                         if stop_recording:
-                            print("Stopped Recording")
-                            frame_queue.put(None)  # Signal the writer thread to stop
-                            writer_thread.join()  # Wait for the writer thread to finish
+                            video_writer.release()
                             dt = datetime.now()
                             dtstr = '_' + dt.strftime("%d-%m-%Y_%H-%M-%S")
                             csv_file = settings["filename"] + dtstr + ".csv"
@@ -226,12 +201,13 @@ def video_feed():
                                 str(csv_file_path), csvDump, delimiter=",", header=header, comments="")
                             is_recording = False
                             stop_recording = False
+                            print("Stopped Recording")
                         # posArr = [
                         #     tuple(map(lambda x: int(abs(x) * factor), i)) for i in posArr]
 
                         # Change color to rgb from gray to allow for the coloring of circles
                         frame = cv2.cvtColor(frame, cv2.COLOR_GRAY2RGB)
-                        # draw CMS position on frame
+                        # draw CMS position on frame as green circle
                         cv2.circle(frame, (int(calculated_worm_coords[0]), int(calculated_worm_coords[1])), 9, (0, 255, 0), -1)
                         # add skeleton overlay to image for DLC
                         #frame = draw_skeleton(frame, posArr)
@@ -503,10 +479,8 @@ def trackWorm(input, deviceX: Device, deviceY: Device, deviceXPos, deviceYPos, r
 
 def Thresh_Light_Background(frame, new_size):
     blurred_frame = cv2.GaussianBlur(frame, (33, 33), 99)
-    # resize the frame to 1/4 of the original size
-    resized_frame = cv2.resize(blurred_frame, new_size, interpolation = cv2.INTER_AREA)
     # Convert the image to a binary image
-    thresh = cv2.adaptiveThreshold(resized_frame, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY_INV, 69, 3)
+    thresh = cv2.adaptiveThreshold(blurred_frame, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY_INV, 69, 3)
     kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
     eroded_image = cv2.erode(thresh, kernel, iterations=3)
     processed_frame = cv2.dilate(eroded_image, kernel, iterations=1)
