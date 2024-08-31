@@ -5,7 +5,6 @@ from threading import Thread, Lock
 import queue
 # Initialize the queue
 frame_queue = queue.Queue()
-frame_queue2 = queue.Queue()
 import cv2
 import math
 from zaber_motion.ascii import Connection, Device
@@ -70,10 +69,10 @@ settings = {
     "filepath": str(pathlib.Path.home() / 'WormSpy_video'),
     "filename": 'default',}
 
-def tiff_writer(project_path, frame_queue2):
+def tiff_writer(project_path, frame_queue):
     frame_count = 0
     while True:
-        frame = frame_queue2.get()
+        frame = frame_queue.get()
         if frame is None:
             break
         frame_count += 1
@@ -173,8 +172,8 @@ def video_feed():
                         # Reinitialize file recording
                         if start_recording:
                             is_recording = True
-                            dt = datetime.now(tz=timeZone)
-                            dtstr = dt.strftime("%d-%m-%Y_%H-%M-%S")
+                            dt_save = datetime.now(tz=timeZone)
+                            dtstr = dt_save.strftime("%d-%m-%Y_%H-%M")
                             folder_name = settings["filename"] + '_' + dtstr
                             project_path: pathlib.Path = filepathToDirectory(settings["filepath"]) / folder_name
                             if not project_path.exists(): 
@@ -182,29 +181,29 @@ def video_feed():
                             # initialize video writer
                             fourcc = cv2.VideoWriter_fourcc(*'XVID')
                             video_writer = cv2.VideoWriter(str(project_path / "brightfield.avi"), fourcc, fps, (frame.shape[1], frame.shape[0]), isColor=False) # FUCK THIS
-                            csvDump = np.zeros((1, 2))
+                            dtype = [('timestamp', 'U26'), ('X', 'f8'), ('Y', 'f8')]
+                            csvDump = np.zeros(0, dtype=dtype)
                             print("Start Brightfield Recording")
                             start_recording = False
                         # add frame to recording buffer if currently recording
                         if is_recording:
-                            csvDump = np.append(csvDump, [[xCmd, yCmd]], axis=0)
+                            x_report = xMotor.get_position(unit=Units.LENGTH_MICROMETRES)
+                            y_report = yMotor.get_position(unit=Units.LENGTH_MICROMETRES)
+                            dt = datetime.now(tz=timeZone).strftime("%H:%M:%S.%f")
+                            csvDump = np.append(csvDump, np.array([(dt, x_report, y_report)], dtype=dtype))
                             video_writer.write(frame)
                         # convert recording buffer to file
                         if stop_recording:
                             video_writer.release()
-                            dt = datetime.now()
-                            dtstr = '_' + dt.strftime("%d-%m-%Y_%H-%M-%S")
                             csv_file = settings["filename"] + dtstr + ".csv"
                             csv_file_path = pathlib.Path(settings["filepath"]) / folder_name / csv_file
-                            header = "X,Y"  # Add header
-                            np.savetxt(
-                                str(csv_file_path), csvDump, delimiter=",", header=header, comments="")
+                            header = "timestamp,X,Y"  # Add header
+                            np.savetxt(str(csv_file_path), csvDump, delimiter=",", header=header, comments="", fmt='%s,%f,%f')
                             is_recording = False
                             stop_recording = False
                             print("Stopped Recording")
                         # posArr = [
                         #     tuple(map(lambda x: int(abs(x) * factor), i)) for i in posArr]
-
                         # Change color to rgb from gray to allow for the coloring of circles
                         frame = cv2.cvtColor(frame, cv2.COLOR_GRAY2RGB)
                         # draw CMS position on frame as green circle
@@ -253,24 +252,23 @@ def video_feed_fluorescent():
                     start_recording_fl = False
                     is_recording = True
                     dt = datetime.now(tz=timeZone)
-                    dtstr = dt.strftime("%d-%m-%Y_%H-%M-%S")
+                    dtstr = dt.strftime("%d-%m-%Y_%H-%M")
                     folder_name = settings["filename"] + '_' + dtstr
                     project_path: pathlib.Path = filepathToDirectory(settings["filepath"]) / folder_name / 'fluorescent_tiffs'
                     if not project_path.exists(): 
                         project_path.mkdir(parents=True, exist_ok=False)
                     # Start the writer thread
-                    writer_thread = Thread(target=tiff_writer, args=(project_path, frame_queue2))
+                    writer_thread = Thread(target=tiff_writer, args=(project_path, frame_queue))
                     writer_thread.start()
                 if is_recording:
                     frame = cv2.resize(frame, resolution)
-                    frame_queue2.put(frame)  # Add frame to queue instead of writing directly
+                    frame_queue.put(frame)  # Add frame to queue instead of writing directly
                 if stop_recording_fl:
                     print("Stopped Fluorescent Recording")
                     is_recording = False
                     stop_recording_fl = False
-                    frame_queue2.put(None)  # Signal the writer thread to stop
+                    frame_queue.put(None)  # Signal the writer thread to stop
                     writer_thread.join()  # Wait for the writer thread to finish
-
                 ret, jpeg = cv2.imencode('.png', frame_8bit)
                 yield (b'--frame\r\n'
                     b'Content-Type: image/jpeg\r\n\r\n' + jpeg.tobytes() + b'\r\n')
@@ -474,7 +472,7 @@ def trackWorm(input, deviceX: Device, deviceY: Device, deviceXPos, deviceYPos, r
         y_data =int(yCmdAmt/5)
         # print(y_data)
         deviceX.move_relative(x_data, unit = Units.NATIVE, wait_until_idle = False, velocity = 0, velocity_unit = Units.NATIVE, acceleration = 4, acceleration_unit = Units.NATIVE)
-        deviceY.move_relative(y_data, unit = Units.NATIVE, wait_until_idle = False, velocity = 0, velocity_unit = Units.NATIVE, acceleration = 4, acceleration_unit = Units.NATIVE)
+        deviceY.move_relative(y_data, unit = Units.NATIVE, wait_until_idle = False, velocity = 0, velocity_unit = Units.NATIVE, acceleration = 5, acceleration_unit = Units.NATIVE)
     return (deviceXPos + xCmdAmt), (deviceYPos + yCmdAmt), xCmdAmt, yCmdAmt
 
 def Thresh_Light_Background(frame, new_size):
