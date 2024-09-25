@@ -249,6 +249,12 @@ h1 {
       }
     }
 
+    .manual-row {
+      display: flex;
+      flex-direction: row;
+      width: 100%;
+    }
+
     .camera-settings {
       width: 100%;
       display: flex;
@@ -286,7 +292,7 @@ h1 {
       background-color: $button-background-color;
       color: $button-color;
       border-color: $button-color;
-
+      text-wrap: pretty;
       &:active {
         background-color: $button-color;
         color: white;

@@ -244,6 +244,11 @@ export class LiveFeedComponent implements OnInit {
     }
   }
 
+  public moveToCenter(): void {
+    this.http.post(this.apiUrl + '/move_to_center', {})
+      .subscribe((data) => {});
+  }
+
   // selectDirectoryLeft(files: any) {
   //   this.recordingSettings.filepath = files;
   // }

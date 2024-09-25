@@ -13,9 +13,13 @@
       <div class="floating-island">
         <div class="recording-settings" *ngIf="isLiveFeedEnabled">
           <img src="assets/images/Controller.png" alt="" id="keyboard">
-          <mat-button-toggle id="recordButton" (click)="toggleManualMode()">{{
-            manualEnabled ? "Disable Manual Mode" : "Enable Manual Mode"
+          <div class="manual-row">
+            <mat-button-toggle id="recordButton" (click)="toggleManualMode()">{{
+            manualEnabled ? "Disable Manual-Mode" : "Enable Manual-Mode"
             }}</mat-button-toggle>
+            <mat-button-toggle id="recordButton" (click)="moveToCenter()">{{"Center"}}</mat-button-toggle>
+          </div>
+          
         </div>
         <div class="live-feed-settings" *ngIf="!isLiveFeedEnabled">
           <div class="top-row-feed-settings">

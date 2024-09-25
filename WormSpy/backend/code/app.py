@@ -1,24 +1,29 @@
-from flask import Flask, request, Response, jsonify, render_template, abort
-from flask_cors import CORS, cross_origin
-import EasyPySpin
-from threading import Thread, Lock
 import queue
+from threading import Lock, Thread
+
+import EasyPySpin
+from flask import Flask, Response, jsonify, render_template, request
+from flask_cors import CORS, cross_origin
+
 # Initialize the queue
 frame_queue = queue.Queue()
-import cv2
 import math
-from zaber_motion.ascii import Connection, Device
+
+import cv2
 from zaber_motion import Library, Units
+from zaber_motion.ascii import Connection, Device
+
 Library.enable_device_db_store() # Initialize the device database for Zaber communication
-import numpy as np
-import pytz
-from datetime import datetime
-import pathlib
 import copy
+import pathlib
+from datetime import datetime
+
+import numpy as np
 import pygame
-from skimage.measure import label, regionprops
-from skimage.filters import threshold_yen
+import pytz
 from Controller import start_controller
+from skimage.filters import threshold_yen
+from skimage.measure import label, regionprops
 
 app = Flask(__name__, template_folder='production\\templates',
             static_folder='production\\static')
@@ -42,7 +47,7 @@ TOTAL_MM_X = 1.3125  # total width of the FOV in mm
 TOTAL_MM_Y = 1.05  # total height of the FOV in mm
 MM_MST = 20997  # millimeters per microstep
 # Zaber device boundaries
-MAXIMUM_DEVICE_XY_POSITION = 1066667 # may vary if using different motors
+MAXIMUM_DEVICE_XY_POSITION = 1066667 # initialized, wil be updated by the motors
 MAXIMUM_DEVICE_Z_POSITION = 209974 # may vary if using different motors
 MINIMUM_DEVICE_POSITION = 0
 ZABER_ORIENTATION_X = 1 # whether the x direction of the zaber is inverted from the video feed (-1 if they are inverted)
@@ -105,7 +110,7 @@ def video_feed():
         cap.release()
     # function to generate a stream of image frames for the tracking video feed
     def gen():
-        global xMotor, yMotor, zMotor, start_recording, stop_recording, settings, is_tracking, start_tracking, serialPort, af_enabled, start_af, stop_stream, nodeIndex, track_algorithm
+        global xMotor, yMotor, zMotor, start_recording, stop_recording, settings, is_tracking, start_tracking, serialPort, af_enabled, start_af, stop_stream, nodeIndex, track_algorithm, MAXIMUM_DEVICE_XY_POSITION, MAXIMUM_DEVICE_Z_POSITION
         start_af = False
         start_recording = False
         stop_recording = False
@@ -128,6 +133,8 @@ def video_feed():
                 xMotor = device_X.get_axis(1)
                 yMotor = device_Y.get_axis(1)
                 zMotor = device_Z.get_axis(1)
+                MAXIMUM_DEVICE_XY_POSITION = device_X.settings.get("limit.max")
+                MAXIMUM_DEVICE_Z_POSITION = device_Z.settings.get("limit.max")
                 firstIt = True
                 # counter = 0
                 while (cap.isOpened()):
@@ -404,6 +411,18 @@ def toggle_manual():
         start_controller()
     return str(manual_mode)
 
+@cross_origin()
+@app.route("/move_to_center", methods=['POST'])
+def move_to_center():
+    global xMotor, yMotor
+    xMax = xMotor.settings.get("limit.max")
+    yMax = yMotor.settings.get("limit.max")
+    midX = xMax / 2
+    midY = yMax / 2
+    xMotor.move_absolute(midX, unit=Units.NATIVE, wait_until_idle=False)
+    yMotor.move_absolute(midY, unit=Units.NATIVE, wait_until_idle=False)
+    return jsonify({"message": "Moved to center"})
+
 def determineFocus(image):
     # determine focus using thresholding
     gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
@@ -452,6 +471,7 @@ def simpleToCenter(centroidX, centroidY,resolution):
     return millisMoveX, millisMoveY 
 
 def trackWorm(input, deviceX: Device, deviceY: Device, deviceXPos, deviceYPos, resolution):
+    global MAXIMUM_DEVICE_XY_POSITION, MINIMUM_DEVICE_POSITION
     # check if the input is NaN float value and return if so  
     if math.isnan(input[0]):
         return 0, 0
@@ -557,7 +577,7 @@ def start_controller():
     pygame.init()
     pygame.joystick.init()
 
-    global isManualEnabled
+    global isManualEnabled, xMotor, yMotor, zMotor, MAXIMUM_DEVICE_XY_POSITION, MAXIMUM_DEVICE_Z_POSITION
     
     if pygame.joystick.get_count() > 0:
         # Get the first joystick
@@ -576,68 +596,60 @@ def start_controller():
             print("Joystick does not have enough axes")
     else:
         print("No joystick connected.")
+    try: 
+        while isManualEnabled:
+            
+            pygame.event.pump()
 
-    with Connection.open_serial_port(XYmotorport) as connection:
-        with Connection.open_serial_port(Zmotorport) as connection2:
-            #connection.enable_alerts()
+            xPos = xMotor.get_position(unit=Units.NATIVE)
+            yPos = yMotor.get_position(unit=Units.NATIVE)
+            zPos = zMotor.get_position(unit=Units.NATIVE)
 
-            horizontal_motors = connection.detect_devices()
-            vertical_motor = connection2.detect_devices()
-            print("Found {} devices on COM6".format(len(horizontal_motors)))
-            print("Found {} devices on COM3".format(len(vertical_motor)))
+            if sticks_good == True:
+                input_x = joystick.get_axis(0)
+                input_y = joystick.get_axis(1)
+                input_z = joystick.get_axis(3)
+                x_data = int(input_x * 2000)
+                y_data = int(input_y * 2000) * -1
+                z_data = int(input_z * 100)
 
-            device_X = horizontal_motors[0]
-            device_Y = horizontal_motors[1]
-            device_Z = vertical_motor[0]
-
-            xMotor = device_X.get_axis(1)
-            print("X Motor: ", xMotor)
-            yMotor = device_Y.get_axis(1)
-            print("Y Motor: ", yMotor)
-            zMotor = device_Z.get_axis(1)
-            print("Z Motor: ", zMotor)
-
-            try: 
-                while isManualEnabled:
-                    
-                    pygame.event.pump()
-
-                    xPos = xMotor.get_position(unit=Units.NATIVE)
-                    yPos = yMotor.get_position(unit=Units.NATIVE)
-                    zPos = zMotor.get_position(unit=Units.NATIVE)
-
-                    if sticks_good == True:
-                        input_x = joystick.get_axis(0)
-                        input_y = joystick.get_axis(1)
-                        input_z = joystick.get_axis(3)
-                        x_data = int(input_x * 2000)
-                        y_data = int(input_y * 2000) * -1
-                        z_data = int(input_z * 100)
-                        # print(input_x, input_y, input_z)
-                      
-                    if ((xPos + x_data < MAXIMUM_DEVICE_XY_POSITION
-                    or xPos + x_data > MINIMUM_DEVICE_POSITION) and input_x != 0):
-                        #print("Joystick input - X:", x_data)
-                        mutex.acquire(blocking=True, timeout=-1)
-                        xMotor.move_relative(x_data, unit = Units.NATIVE, wait_until_idle = False, velocity = 0, velocity_unit = Units.NATIVE, acceleration = 5, acceleration_unit = Units.NATIVE)
-                        mutex.release()
-
-                    if ((yPos + y_data < MAXIMUM_DEVICE_XY_POSITION
-                    or yPos + y_data > MINIMUM_DEVICE_POSITION) and input_y != 0):
-                        #print("Joystick input - Y:", y_data)
-                        mutex.acquire(blocking=True, timeout=-1)
-                        yMotor.move_relative(y_data, unit = Units.NATIVE, wait_until_idle = False, velocity = 0, velocity_unit = Units.NATIVE, acceleration = 5, acceleration_unit = Units.NATIVE)
-                        mutex.release()
-
-                    if ((zPos + z_data < MAXIMUM_DEVICE_Z_POSITION
-                    or zPos + z_data > MINIMUM_DEVICE_POSITION) and input_z != 0):
-                        #print("Joystick input - Z:", z_data)
-                        zMotor.move_relative(z_data, unit = Units.NATIVE, wait_until_idle = False, velocity = 0, velocity_unit = Units.NATIVE, acceleration = 5, acceleration_unit = Units.NATIVE)
-
-            except KeyboardInterrupt:
-                print("Exiting...")
+            # listen for keyboard inputs w, a, s, d, pgup, pgdown
+            keys = pygame.key.get_pressed()
+            if keys[pygame.K_w]:
+                y_data = 2000
+            if keys[pygame.K_s]:
+                y_data = -2000
+            if keys[pygame.K_a]:
+                x_data = -2000
+            if keys[pygame.K_d]:
+                x_data = 2000
+            if keys[pygame.K_PAGEUP]:
+                z_data = 100
+            if keys[pygame.K_PAGEDOWN]:
+                z_data = -100
+                
+            if ((xPos + x_data < MAXIMUM_DEVICE_XY_POSITION
+            or xPos + x_data > MINIMUM_DEVICE_POSITION) and input_x != 0):
+                mutex.acquire(blocking=True, timeout=-1)
+                xMotor.move_relative(x_data, unit = Units.NATIVE, wait_until_idle = False, velocity = 0, velocity_unit = Units.NATIVE, acceleration = 5, acceleration_unit = Units.NATIVE)
                 mutex.release()
-                pygame.quit()
+
+            if ((yPos + y_data < MAXIMUM_DEVICE_XY_POSITION
+            or yPos + y_data > MINIMUM_DEVICE_POSITION) and input_y != 0):
+                #print("Joystick input - Y:", y_data)
+                mutex.acquire(blocking=True, timeout=-1)
+                yMotor.move_relative(y_data, unit = Units.NATIVE, wait_until_idle = False, velocity = 0, velocity_unit = Units.NATIVE, acceleration = 5, acceleration_unit = Units.NATIVE)
+                mutex.release()
+
+            if ((zPos + z_data < MAXIMUM_DEVICE_Z_POSITION
+            or zPos + z_data > MINIMUM_DEVICE_POSITION) and input_z != 0):
+                #print("Joystick input - Z:", z_data)
+                zMotor.move_relative(z_data, unit = Units.NATIVE, wait_until_idle = False, velocity = 0, velocity_unit = Units.NATIVE, acceleration = 5, acceleration_unit = Units.NATIVE)
+
+    except KeyboardInterrupt:
+        print("Exiting...")
+        mutex.release()
+        pygame.quit()
 
 if __name__ == "__main__":
     app.run(host='127.0.0.1', port=5000, debug=False, threaded=True)
