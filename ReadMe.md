@@ -8,7 +8,7 @@ Example of a worm expressing pansensory GCaMP being tracked using WormsPy
 Example with Brightfield and Fluorescent videos side by side: (worm is expressing GCaMP3 via the myo-3 promoter, for expression in body-wall musculature.)
 ![](media/Demo2.gif)
 
-Example with various drosophila larvae expressing jGCaMP8f in muscle tissue courtesy of the Ohyama lab at MGill.
+Example with various drosophila larvae expressing jGCaMP8f in muscle tissue courtesy of the Ohyama lab at McGill.
 ![](media/drosophila.gif)
 
 ## Features
