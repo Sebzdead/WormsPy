@@ -22,6 +22,7 @@ import numpy as np
 import pygame
 import pytz
 from Controller import start_controller
+from plot_worm_path import plot_worm_path
 from skimage.filters import threshold_yen
 from skimage.measure import label, regionprops
 
@@ -117,8 +118,6 @@ def video_feed():
         is_recording = False
         xPos = 0
         yPos = 0
-        xCmd = 0
-        yCmd = 0
         with Connection.open_serial_port(XYmotorport) as connection:
             with Connection.open_serial_port(Zmotorport) as connection2:
                 connection.enable_alerts()
@@ -136,7 +135,6 @@ def video_feed():
                 MAXIMUM_DEVICE_XY_POSITION = device_X.settings.get("limit.max")
                 MAXIMUM_DEVICE_Z_POSITION = device_Z.settings.get("limit.max")
                 firstIt = True
-                # counter = 0
                 while (cap.isOpened()):
                     # Read a frame from the video capture
                     success, frame = cap.read()
@@ -161,7 +159,7 @@ def video_feed():
                             start_tracking = False
                         if is_tracking: ### BUTTON HAS BEEN PRESSED
                             if track_algorithm == 0: ### BRIGHT BACKGROUND THRESHOLDING
-                                processed_frame = Thresh_Light_Background(frame_downsample, downsample_size)
+                                processed_frame = Thresh_Light_Background(frame_downsample)
                                 worm_coords = find_worm_cms(processed_frame, factor, initial_coords)
                             elif track_algorithm == 1: ### FLUORESCENT THRESHOLDING
                                 processed_frame = Thresh_Fluorescent_Marker(frame_downsample,downsample_size)
@@ -174,20 +172,19 @@ def video_feed():
                             calculated_worm_coords = (worm_coords[0] , worm_coords[1])
                             # MUTEX POSITION 1
                             if not mutex.locked():
-                                xPos, yPos, xCmd, yCmd = trackWorm(
-                                (calculated_worm_coords[0] , calculated_worm_coords[1]), xMotor, yMotor, xPos, yPos, resolution) # TRACKING FUNCTION
+                                xPos, yPos = trackWorm(
+                                (calculated_worm_coords[0], calculated_worm_coords[1]), xMotor, yMotor, xPos, yPos, resolution) # TRACKING FUNCTION
                         # Reinitialize file recording
                         if start_recording:
                             is_recording = True
-                            dt_save = datetime.now(tz=timeZone)
-                            dtstr = dt_save.strftime("%d-%m-%Y_%H-%M")
+                            dtstr = datetime.now(tz=timeZone).strftime("%d-%m-%Y_%H-%M")
                             folder_name = settings["filename"] + '_' + dtstr
                             project_path: pathlib.Path = filepathToDirectory(settings["filepath"]) / folder_name
                             if not project_path.exists(): 
                                 project_path.mkdir(parents=True, exist_ok=False)
                             # initialize video writer
                             fourcc = cv2.VideoWriter_fourcc(*'XVID')
-                            video_writer = cv2.VideoWriter(str(project_path / "brightfield.avi"), fourcc, fps, (frame.shape[1], frame.shape[0]), isColor=False) # FUCK THIS
+                            video_writer = cv2.VideoWriter(str(project_path / "brightfield.avi"), fourcc, fps, (frame.shape[1], frame.shape[0]), isColor=False)
                             dtype = [('timestamp', 'U26'), ('X', 'f8'), ('Y', 'f8')]
                             csvDump = np.zeros(0, dtype=dtype)
                             print("Start Brightfield Recording")
@@ -206,11 +203,11 @@ def video_feed():
                             csv_file_path = pathlib.Path(settings["filepath"]) / folder_name / csv_file
                             header = "timestamp,X,Y"  # Add header
                             np.savetxt(str(csv_file_path), csvDump, delimiter=",", header=header, comments="", fmt='%s,%f,%f')
+                            plot_worm_path(csv_file_path) # creates a plot of the worm path in the same directory as the csv file
                             is_recording = False
                             stop_recording = False
                             print("Stopped Recording")
-                        # posArr = [
-                        #     tuple(map(lambda x: int(abs(x) * factor), i)) for i in posArr]
+
                         # Change color to rgb from gray to allow for the coloring of circles
                         frame = cv2.cvtColor(frame, cv2.COLOR_GRAY2RGB)
                         # draw CMS position on frame as green circle
@@ -305,11 +302,8 @@ def get_hist():
                 hist_h = 400
                 bin_w = int(round(hist_w / hist_size))
                 hist = cv2.calcHist(current_frame, [0], None, [hist_size], (0, 256), accumulate=False)
-                
                 norm_hist = cv2.normalize(hist, hist, 0, hist_h, cv2.NORM_MINMAX)
                 histImage = np.zeros((hist_h, hist_w, 3), dtype=np.uint8)
-                # # Create an empty image
-                # h = np.ones((256, 256, 3)) * 255  # Here, 300 is the height and 256 is the width
                 for i in range(1, hist_size):
                     cv2.line(histImage, (bin_w * (i - 1), hist_h - int(norm_hist[i - 1])),
                              (bin_w * (i), hist_h - int(norm_hist[i])), (0, 255, 0), thickness=2)
@@ -493,9 +487,9 @@ def trackWorm(input, deviceX: Device, deviceY: Device, deviceXPos, deviceYPos, r
         # print(y_data)
         deviceX.move_relative(x_data, unit = Units.NATIVE, wait_until_idle = False, velocity = 0, velocity_unit = Units.NATIVE, acceleration = 4, acceleration_unit = Units.NATIVE)
         deviceY.move_relative(y_data, unit = Units.NATIVE, wait_until_idle = False, velocity = 0, velocity_unit = Units.NATIVE, acceleration = 5, acceleration_unit = Units.NATIVE)
-    return (deviceXPos + xCmdAmt), (deviceYPos + yCmdAmt), xCmdAmt, yCmdAmt
+    return (deviceXPos + xCmdAmt), (deviceYPos + yCmdAmt)#, xCmdAmt, yCmdAmt
 
-def Thresh_Light_Background(frame, new_size):
+def Thresh_Light_Background(frame):
     blurred_frame = cv2.GaussianBlur(frame, (33, 33), 99)
     # Convert the image to a binary image
     thresh = cv2.adaptiveThreshold(blurred_frame, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY_INV, 69, 3)
