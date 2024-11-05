@@ -1,23 +1,15 @@
 import queue
 from threading import Lock, Thread
-
 import EasyPySpin
 from flask import Flask, Response, jsonify, render_template, request
 from flask_cors import CORS, cross_origin
-
-# Initialize the queue
-frame_queue = queue.Queue()
 import math
-
 import cv2
 from zaber_motion import Library, Units
 from zaber_motion.ascii import Connection, Device
-
-Library.enable_device_db_store() # Initialize the device database for Zaber communication
 import copy
 import pathlib
 from datetime import datetime
-
 import numpy as np
 import pygame
 import pytz
@@ -33,18 +25,15 @@ app.config['CORS_HEADERS'] = 'Content-Type'
 # Start the Flask app locally on host IP address 127.0.0.1 for testing
 # python -m flask run --host=127.0.0.1
 
-# HARD CODED VARIABLES
-mutex = Lock()
-isManualEnabled = False
-# Intial Camera Settings
-leftCam = None # leave as None, will be set by the user in the UI
-rightCam = None # leave as None, will be set by the user in the UI
-XYmotorport = 'COM6' # Will vary depending on the computer
-Zmotorport = 'COM3' # Will vary depending on the computer
+### SETTINGS FOR THE WORMSPY APPLICATION, all necessary settings besides DLC, and the framerate for the left camera can be set here
+# To use DLC, modify lines 26-31, 160, 208 and the draw_skeleton function depending on the number of nodes in the DLC model
+# If you'd like to change the fps for the left camera you can do so by changing the fps = 10 variable in line 139, make sure it matches the camera's fps
 
 # SET UP CONFIGURATION
-TOTAL_MM_X = 1.3125  # total width of the FOV in mm
-TOTAL_MM_Y = 1.05  # total height of the FOV in mm
+XYmotorport = 'COM6' # Will vary depending on the computer
+Zmotorport = 'COM3' # Will vary depending on the computer
+TOTAL_MM_X = 1.3125  # total width of the FOV in mm (measure)
+TOTAL_MM_Y = 1.05  # total height of the FOV in mm (measure)
 MM_MST = 20997  # millimeters per microstep
 # Zaber device boundaries
 MAXIMUM_DEVICE_XY_POSITION = 1066667 # initialized, wil be updated by the motors
@@ -52,8 +41,22 @@ MAXIMUM_DEVICE_Z_POSITION = 209974 # may vary if using different motors
 MINIMUM_DEVICE_POSITION = 0
 ZABER_ORIENTATION_X = 1 # whether the x direction of the zaber is inverted from the video feed (-1 if they are inverted)
 ZABER_ORIENTATION_Y = -1 # whether the y direction of the zaber is inverted from the video feed (-1 if they are inverted)
+hist_frame = np.zeros((600, 960, 1), dtype=np.uint8) #change to match frame size of the right camera feed (y,x,1)
 
-# Global Variables for recording (leave as False)
+# settings for the recording
+timeZone = pytz.timezone("US/Eastern")
+settings = {
+    "filepath": str(pathlib.Path.home() / 'WormSpy_video'),
+    "filename": 'default',}
+
+# DLC Live Settings, more lines down below that need to be uncommented if using DLC
+# from dlclive import DLCLive, Processor
+# Import the DLC NN model
+# dlc_proc = Processor()
+# dlc_live = DLCLive(r'C:\Users\User\Documents\WormSpy\DLC_models/3-node',
+#                    processor=dlc_proc, display=False)
+
+# Global Variables (leave alone)
 stop_stream = False
 start_recording = False
 stop_recording = False
@@ -61,18 +64,17 @@ start_recording_fl = False
 stop_recording_fl = False
 af_enabled = False
 start_af = False
-hist_frame = np.zeros((600, 960, 1), dtype=np.uint8) #change to match frame size of right camera feed (y,x,1)
 heatmap_enabled = False
-# Tracking Variables
 track_algorithm = 0
 is_tracking = False
 start_tracking = False
 nodeIndex = 0
-# settings for the recording
-timeZone = pytz.timezone("US/Eastern")
-settings = {
-    "filepath": str(pathlib.Path.home() / 'WormSpy_video'),
-    "filename": 'default',}
+mutex = Lock()
+isManualEnabled = False
+leftCam = None # leave as None, will be set by the user in the UI
+rightCam = None # leave as None, will be set by the user in the UI
+frame_queue = queue.Queue() # Initialize the queue
+Library.enable_device_db_store() # Initialize the device database for Zaber communication
 
 def tiff_writer(project_path, frame_queue):
     frame_count = 0
@@ -83,13 +85,6 @@ def tiff_writer(project_path, frame_queue):
         frame_count += 1
         frame_name = f"frame_{frame_count}.tiff"
         cv2.imwrite(str(project_path / frame_name), frame)
-
-# DLC Live Settings
-# from dlclive import DLCLive, Processor
-# Import the DLC NN model
-# dlc_proc = Processor()
-# dlc_live = DLCLive(r'C:\Users\User\Documents\WormSpy\DLC_models/3-node',
-#                    processor=dlc_proc, display=False)
 
 @app.route("/")
 @cross_origin()
@@ -142,13 +137,11 @@ def video_feed():
                     initial_coords = [(resolution[0]/2), resolution[1]/2] # INITIALIZE IN CENTER OF FRAME
                     calculated_worm_coords = initial_coords
                     fps = 10 # MUST MANUALLY CHANGE :( depending on camera model you could detect it from the camera
-                    #check if frame is 8 bit and grayscale and convert if not
-                    if frame.dtype != np.uint8:
+                    if frame.dtype != np.uint8: #check if frame is 8 bit and grayscale and convert if not
                         frame = cv2.normalize(frame, None, 0, 255, cv2.NORM_MINMAX, dtype=cv2.CV_8U) 
                     if len(frame.shape) == 3:
                         frame = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-                    # Downsample the frame to 1/4 of the original size
-                    frame_downsample = cv2.resize(frame, (int(frame.shape[1] / factor), int(frame.shape[0] / factor)), interpolation = cv2.INTER_AREA)
+                    frame_downsample = cv2.resize(frame, (int(frame.shape[1] / factor), int(frame.shape[0] / factor)), interpolation = cv2.INTER_AREA) # Downsample the frame to 1/4 of the original size
                     height, width = frame_downsample.shape
                     downsample_size = (int(height), int(width))
                     if success:
@@ -306,7 +299,6 @@ def get_hist():
                 for i in range(1, hist_size):
                     cv2.line(histImage, (bin_w * (i - 1), hist_h - int(norm_hist[i - 1])),
                              (bin_w * (i), hist_h - int(norm_hist[i])), (0, 255, 0), thickness=2)
-                
                 ret, image_data = cv2.imencode('.png', histImage)
                 png = image_data.tobytes()
                 # image_data = buffer.getvalue()
@@ -482,9 +474,7 @@ def trackWorm(input, deviceX: Device, deviceY: Device, deviceXPos, deviceYPos, r
         # move the device to the new position.
         x_data =int(xCmdAmt/5)
         y_data =int(yCmdAmt/5)
-        # deviceX.move_relative(x_data, unit = Units.NATIVE, wait_until_idle = False, velocity = 0, velocity_unit = Units.NATIVE, acceleration = 5, acceleration_unit = Units.NATIVE)
         deviceX.generic_command_no_response(f'move rel {x_data} 10000 5')
-        # deviceY.move_relative(y_data, unit = Units.NATIVE, wait_until_idle = False, velocity = 0, velocity_unit = Units.NATIVE, acceleration = 5, acceleration_unit = Units.NATIVE)
         deviceY.generic_command_no_response(f'move rel {y_data} 10000 5')
     return (deviceXPos + xCmdAmt), (deviceYPos + yCmdAmt)#, xCmdAmt, yCmdAmt
 
