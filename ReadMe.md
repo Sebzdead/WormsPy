@@ -11,7 +11,7 @@ Example with Brightfield and Fluorescent videos side by side: (worm is expressin
 Example with various drosophila larvae expressing jGCaMP8f in muscle tissue courtesy of the Ohyama lab at McGill.
 ![](media/drosophila.gif)
 
-## Features
+## Features:
 WormsPy was designed for calcium imaging in head sensory and interneurons in C. elegans. However, many applications are possible by changing the filter sets and objectives and with some slight tweaks to the software.
 The basic design of WormsPy includes:
 1. Dual video feeds, brightfield and calcium imaging, but other setups are also possible
@@ -23,31 +23,39 @@ The basic design of WormsPy includes:
 
 See the demonstration video here: https://youtu.be/mhyYDpziSE8
 
-## Getting started with WormsPy
+## Building the WormsPy imaging platform:
 For a full build guide please see our publication: (FORTHCOMING)
 
-### Minimum requirements
+### Minimum requirements:
 Minimum requirements to use WormSpy:
 - 2x Spinnaker compatible cameras or any cameras compatible with opencv-python
 - XY Zaber motor stage (Controlled with ASCII Commands) 
 - Z Zaber motor stage (Controlled with ASCII Commands)
 - if using DLC, a CUDA capable NVidia GPU (Preferrably with Tensor Cores)
+- any modern CPU, though Intel architectures have better performance
+- any dual stick controller compatible with PyGame
 
-### Getting started with WormsPy
-1. Install Miniconda or Anaconda 
-2. `conda create --name wormspy --file requirements.txt`
-3. Ensure only the required two cameras are connected to the computer.
-4. Identify the serial port for the XY motors and the serial port for the Z motor. 
-If all three motors are connected via the same serial port, you will have to modify the `video_feed()` function in `app.py` such that only one serial port is open. 
-5. There are a number of variables that are hardcoded in app.py at line #36, which should work for a two camera setup but may need to be modified for other use cases
-6. Open the ZaberLauncher application, which acts as an intermediary messenger to the motors.
-7. Run StartWormSpy.bat
-8. In your browser visit `localhost:5000`
+### Getting started with WormsPy:
+1. Clone the repository, we recommend downloading the zip and extracting to desired location.
+2. We recommend using MiniConda for environment management: https://docs.anaconda.com/miniconda/miniconda-install/
+3. Add anaconda to System Path Variables
+4. Open Anaconda prompt and run 'conda init'
+5. Open Anaconda prompt, cd to the WormsPy directory
+6. Run 'conda create --name wormspy python=3.8.15'
+7. Run 'conda activate wormspy'
+8. Run 'pip install -r requirements.txt'
+9. Install the Zaber Launcher application: https://www.zaber.com/software#pos-download
+10. Set up your motor connections using ZaberLauncher, note down COM port # for your motors and maximum position index
+11. Open the file 'WormsPy/backend/code/app.py' and adjust COM ports as well as other settings as needed
+12. Adjust your camera settings as desired using the camera's native software (SpinView for Teledyne cameras)
+13. Double click StartWormsPy.bat
+14. In your browser visit `localhost:5000`
+15. Enjoy WormsPy!
 
-## Developer's Notes
+## Developer's Notes:
 More information for those interested in adapting WormSpy for their use case.
 
-### Frontend 
+### Frontend:
 The frontend of WormsPy was developed using Angular (HTML/SCSS/TS). To make adjustments the frontend, the installation of NodeJs is required. Run `npm install` in the `wormspy` folder after initially downloading the files. Adjustments to the frontend can be made in the live-feed component found in `wormspy/src/app/live-feed`. 
 
 To continue using flask as a web server and maintain `StartWormSpy.bat` as an easy launch option, follow these steps:
@@ -56,14 +64,14 @@ To continue using flask as a web server and maintain `StartWormSpy.bat` as an ea
 3. Place all other files found in the dist folder into the `production/static` folder. Ignore assets unless those have been updated.
 <!-- 4. In the `index.html` file, edit all import statements following this template: `<src>/<href>="{{url_for('static', filename='<filename>.js')}}"` -->
 
-### Backend
+### Backend:
 WormSpy uses a Python Flask web server (`app.py`) to communicate with the frontend. A combination of the OpenCV and EasyPySpin libraries are used to communicate with the cameras. The Zaber Motion **ASCII** library is used to control the Zaber motors via the Zaber_messenger_router(), which is why the Zaberlauncher application must be open for WormsPy to work. There is an optional DeepLabCut (DLC) Live tracking option available. To activate, uncomment the code that loads in the pretrained model in lines #87-92. 
 
 If you would like to train and use your own DLC model, place your model in the `DLC_models` folder and replace the `skeleton` folder in the `DLCLive` function of the `video_feed` method.
 
 For more detailed programmatical information about WormSpy, refer to the inline comments found in `app.py`.  
 
-## License
+## License:
 WormSpy was developed by Sebastian Wittekindt and Lennard Wittekindt at McGill University. Funded by the Canadian Institute for Health Research.
 
 Provided as open source software under the MIT license, view the [license](LICENSE.TXT) for details.
