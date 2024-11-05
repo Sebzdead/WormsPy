@@ -39,14 +39,14 @@ Minimum requirements to use WormSpy:
 1. Clone the repository, we recommend downloading the zip and extracting to desired location.
 2. We recommend using MiniConda for environment management: https://docs.anaconda.com/miniconda/miniconda-install/
 3. Add anaconda to System Path Variables
-4. Open Anaconda prompt and run 'conda init'
+4. Open Anaconda prompt and run `conda init`
 5. Open Anaconda prompt, cd to the WormsPy directory
-6. Run 'conda create --name wormspy python=3.8.15'
-7. Run 'conda activate wormspy'
-8. Run 'pip install -r requirements.txt'
+6. Run `conda create --name wormspy python=3.8.15`
+7. Run `conda activate wormspy`
+8. Run `pip install -r requirements.txt`
 9. Install the Zaber Launcher application: https://www.zaber.com/software#pos-download
 10. Set up your motor connections using ZaberLauncher, note down COM port # for your motors and maximum position index
-11. Open the file 'WormsPy/backend/code/app.py' and adjust COM ports as well as other settings as needed
+11. Open the file `WormsPy/backend/code/app.py` and adjust COM ports as well as other settings as needed
 12. Adjust your camera settings as desired using the camera's native software (SpinView for Teledyne cameras)
 13. Double click StartWormsPy.bat
 14. In your browser visit `localhost:5000`
