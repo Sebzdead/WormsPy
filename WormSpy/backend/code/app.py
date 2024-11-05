@@ -21,14 +21,13 @@ from datetime import datetime
 import numpy as np
 import pygame
 import pytz
-from Controller import start_controller
 from plot_worm_path import plot_worm_path
 from skimage.filters import threshold_yen
 from skimage.measure import label, regionprops
 
 app = Flask(__name__, template_folder='production\\templates',
             static_folder='production\\static')
-CORS(app, origins=['http://localhost:4200', 'http://localhost:5000', 'https://4dfklk7l-4200.use.devtunnels.ms'])
+CORS(app, origins=['http://localhost:4200', 'http://localhost:5000'])
 app.config['CORS_HEADERS'] = 'Content-Type'
 
 # Start the Flask app locally on host IP address 127.0.0.1 for testing
@@ -116,6 +115,7 @@ def video_feed():
         start_recording = False
         stop_recording = False
         is_recording = False
+        factor = 4
         xPos = 0
         yPos = 0
         with Connection.open_serial_port(XYmotorport) as connection:
@@ -148,7 +148,6 @@ def video_feed():
                     if len(frame.shape) == 3:
                         frame = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
                     # Downsample the frame to 1/4 of the original size
-                    factor = 4
                     frame_downsample = cv2.resize(frame, (int(frame.shape[1] / factor), int(frame.shape[0] / factor)), interpolation = cv2.INTER_AREA)
                     height, width = frame_downsample.shape
                     downsample_size = (int(height), int(width))
@@ -482,11 +481,11 @@ def trackWorm(input, deviceX: Device, deviceY: Device, deviceXPos, deviceYPos, r
     or deviceYPos + yCmdAmt > MINIMUM_DEVICE_POSITION):
         # move the device to the new position.
         x_data =int(xCmdAmt/5)
-        # print(x_data)
         y_data =int(yCmdAmt/5)
-        # print(y_data)
-        deviceX.move_relative(x_data, unit = Units.NATIVE, wait_until_idle = False, velocity = 0, velocity_unit = Units.NATIVE, acceleration = 4, acceleration_unit = Units.NATIVE)
-        deviceY.move_relative(y_data, unit = Units.NATIVE, wait_until_idle = False, velocity = 0, velocity_unit = Units.NATIVE, acceleration = 5, acceleration_unit = Units.NATIVE)
+        # deviceX.move_relative(x_data, unit = Units.NATIVE, wait_until_idle = False, velocity = 0, velocity_unit = Units.NATIVE, acceleration = 5, acceleration_unit = Units.NATIVE)
+        deviceX.generic_command_no_response(f'move rel {x_data} 10000 5')
+        # deviceY.move_relative(y_data, unit = Units.NATIVE, wait_until_idle = False, velocity = 0, velocity_unit = Units.NATIVE, acceleration = 5, acceleration_unit = Units.NATIVE)
+        deviceY.generic_command_no_response(f'move rel {y_data} 10000 5')
     return (deviceXPos + xCmdAmt), (deviceYPos + yCmdAmt)#, xCmdAmt, yCmdAmt
 
 def Thresh_Light_Background(frame):
@@ -625,20 +624,18 @@ def start_controller():
             if ((xPos + x_data < MAXIMUM_DEVICE_XY_POSITION
             or xPos + x_data > MINIMUM_DEVICE_POSITION) and input_x != 0):
                 mutex.acquire(blocking=True, timeout=-1)
-                xMotor.move_relative(x_data, unit = Units.NATIVE, wait_until_idle = False, velocity = 0, velocity_unit = Units.NATIVE, acceleration = 5, acceleration_unit = Units.NATIVE)
+                xMotor.generic_command_no_response(f'move rel {x_data} 10000 5')
                 mutex.release()
 
             if ((yPos + y_data < MAXIMUM_DEVICE_XY_POSITION
             or yPos + y_data > MINIMUM_DEVICE_POSITION) and input_y != 0):
-                #print("Joystick input - Y:", y_data)
                 mutex.acquire(blocking=True, timeout=-1)
-                yMotor.move_relative(y_data, unit = Units.NATIVE, wait_until_idle = False, velocity = 0, velocity_unit = Units.NATIVE, acceleration = 5, acceleration_unit = Units.NATIVE)
+                yMotor.generic_command_no_response(f'move rel {y_data} 10000 5')
                 mutex.release()
 
             if ((zPos + z_data < MAXIMUM_DEVICE_Z_POSITION
             or zPos + z_data > MINIMUM_DEVICE_POSITION) and input_z != 0):
-                #print("Joystick input - Z:", z_data)
-                zMotor.move_relative(z_data, unit = Units.NATIVE, wait_until_idle = False, velocity = 0, velocity_unit = Units.NATIVE, acceleration = 5, acceleration_unit = Units.NATIVE)
+                zMotor.generic_command_no_response(f'move rel {z_data} 10000 5')
 
     except KeyboardInterrupt:
         print("Exiting...")
