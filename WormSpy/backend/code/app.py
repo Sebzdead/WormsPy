@@ -1,21 +1,22 @@
-import queue
-from threading import Lock, Thread
-import EasyPySpin
-from flask import Flask, Response, jsonify, render_template, request
-from flask_cors import CORS, cross_origin
-import math
 import cv2
-from zaber_motion import Library, Units
-from zaber_motion.ascii import Connection, Device
+import math
 import copy
-import pathlib
-from datetime import datetime
-import numpy as np
-import pygame
 import pytz
+import queue
+import pygame
+import asyncio
+import pathlib
+import EasyPySpin
+import numpy as np
+from datetime import datetime
+from threading import Lock, Thread
+from zaber_motion import Library, Units
 from plot_worm_path import plot_worm_path
+from flask_cors import CORS, cross_origin
 from skimage.filters import threshold_yen
 from skimage.measure import label, regionprops
+from zaber_motion.ascii import Connection, Device
+from flask import Flask, Response, jsonify, render_template, request
 
 app = Flask(__name__, template_folder='production\\templates',
             static_folder='production\\static')
@@ -104,15 +105,49 @@ def video_feed():
     if stop_stream:
         cap.release()
     # function to generate a stream of image frames for the tracking video feed
-    def gen():
+    async def track_worm_async(queue, xMotor, yMotor, resolution, factor, initial_coords):
+        global start_tracking, is_tracking, track_algorithm, nodeIndex
+        firstIt = True
+        while True:
+            frame_downsample = await queue.get()
+            if frame_downsample is None:
+                break
+            height, width = frame_downsample.shape
+            downsample_size = (int(height), int(width))
+            if start_tracking:
+                            xPos = xMotor.get_position(unit=Units.NATIVE)
+                            yPos = yMotor.get_position(unit=Units.NATIVE)
+                            start_tracking = False
+            if is_tracking:
+                if track_algorithm == 0:
+                    processed_frame = Thresh_Light_Background(frame_downsample)
+                    worm_coords = find_worm_cms(processed_frame, factor, initial_coords)
+                elif track_algorithm == 1:
+                    processed_frame = Thresh_Fluorescent_Marker(frame_downsample, downsample_size)
+                    worm_coords = find_worm_cms(processed_frame, factor, initial_coords)
+                elif track_algorithm == 2:
+                    dlc_live = None
+                    poseArr = DLC_tracking(dlc_live, firstIt, frame_downsample, downsample_size, factor)
+                    firstIt = False
+                    posArr = poseArr[:, [0, 1]]
+                    worm_coords = (posArr[nodeIndex, 0], posArr[nodeIndex, 1])
+                calculated_worm_coords = (worm_coords[0], worm_coords[1])
+                if not mutex.locked():
+                    xPos, yPos = trackWorm(
+                        (calculated_worm_coords[0], calculated_worm_coords[1]), xMotor, yMotor, xPos, yPos, resolution)
+            queue.task_done()
+        
+    async def gen():
         global xMotor, yMotor, zMotor, start_recording, stop_recording, settings, is_tracking, start_tracking, serialPort, af_enabled, start_af, stop_stream, nodeIndex, track_algorithm, MAXIMUM_DEVICE_XY_POSITION, MAXIMUM_DEVICE_Z_POSITION
         start_af = False
         start_recording = False
         stop_recording = False
         is_recording = False
         factor = 4
-        xPos = 0
-        yPos = 0
+        # xPos = 0
+        # yPos = 0
+        queue = asyncio.Queue()
+        tracking_task = asyncio.create_task(track_worm_async(queue, xMotor, yMotor, resolution, factor, initial_coords))
         with Connection.open_serial_port(XYmotorport) as connection:
             with Connection.open_serial_port(Zmotorport) as connection2:
                 connection.enable_alerts()
@@ -129,7 +164,7 @@ def video_feed():
                 zMotor = device_Z.get_axis(1)
                 MAXIMUM_DEVICE_XY_POSITION = device_X.settings.get("limit.max")
                 MAXIMUM_DEVICE_Z_POSITION = device_Z.settings.get("limit.max")
-                firstIt = True
+                # firstIt = True
                 while (cap.isOpened()):
                     # Read a frame from the video capture
                     success, frame = cap.read()
@@ -142,30 +177,31 @@ def video_feed():
                     if len(frame.shape) == 3:
                         frame = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
                     frame_downsample = cv2.resize(frame, (int(frame.shape[1] / factor), int(frame.shape[0] / factor)), interpolation = cv2.INTER_AREA) # Downsample the frame to 1/4 of the original size
-                    height, width = frame_downsample.shape
-                    downsample_size = (int(height), int(width))
+                    # height, width = frame_downsample.shape
+                    # downsample_size = (int(height), int(width))
                     if success:
-                        if start_tracking:
-                            xPos = xMotor.get_position(unit=Units.NATIVE)
-                            yPos = yMotor.get_position(unit=Units.NATIVE)
-                            start_tracking = False
-                        if is_tracking: ### BUTTON HAS BEEN PRESSED
-                            if track_algorithm == 0: ### BRIGHT BACKGROUND THRESHOLDING
-                                processed_frame = Thresh_Light_Background(frame_downsample)
-                                worm_coords = find_worm_cms(processed_frame, factor, initial_coords)
-                            elif track_algorithm == 1: ### FLUORESCENT THRESHOLDING
-                                processed_frame = Thresh_Fluorescent_Marker(frame_downsample,downsample_size)
-                                worm_coords = find_worm_cms(processed_frame, factor, initial_coords)
-                            elif track_algorithm == 2: ### DEEP LAB CUT TRACKING
-                                dlc_live = None # COMMENT OUT IF USING DLC
-                                poseArr = DLC_tracking(dlc_live,firstIt,frame_downsample,downsample_size, factor)
-                                posArr = poseArr[:, [0, 1]]
-                                worm_coords = (posArr[nodeIndex, 0] , posArr[nodeIndex, 1])
-                            calculated_worm_coords = (worm_coords[0] , worm_coords[1])
-                            # MUTEX POSITION 1
-                            if not mutex.locked():
-                                xPos, yPos = trackWorm(
-                                (calculated_worm_coords[0], calculated_worm_coords[1]), xMotor, yMotor, xPos, yPos, resolution) # TRACKING FUNCTION
+                        await queue.put(frame_downsample)
+                        # if start_tracking:
+                        #     xPos = xMotor.get_position(unit=Units.NATIVE)
+                        #     yPos = yMotor.get_position(unit=Units.NATIVE)
+                        #     start_tracking = False
+                        # if is_tracking: ### BUTTON HAS BEEN PRESSED
+                        #     if track_algorithm == 0: ### BRIGHT BACKGROUND THRESHOLDING
+                        #         processed_frame = Thresh_Light_Background(frame_downsample)
+                        #         worm_coords = find_worm_cms(processed_frame, factor, initial_coords)
+                        #     elif track_algorithm == 1: ### FLUORESCENT THRESHOLDING
+                        #         processed_frame = Thresh_Fluorescent_Marker(frame_downsample,downsample_size)
+                        #         worm_coords = find_worm_cms(processed_frame, factor, initial_coords)
+                        #     elif track_algorithm == 2: ### DEEP LAB CUT TRACKING
+                        #         dlc_live = None # COMMENT OUT IF USING DLC
+                        #         poseArr = DLC_tracking(dlc_live,firstIt,frame_downsample,downsample_size, factor)
+                        #         posArr = poseArr[:, [0, 1]]
+                        #         worm_coords = (posArr[nodeIndex, 0] , posArr[nodeIndex, 1])
+                        #     calculated_worm_coords = (worm_coords[0] , worm_coords[1])
+                        #     # MUTEX POSITION 1
+                        #     if not mutex.locked():
+                        #         xPos, yPos = trackWorm(
+                        #         (calculated_worm_coords[0], calculated_worm_coords[1]), xMotor, yMotor, xPos, yPos, resolution) # TRACKING FUNCTION
                         # Reinitialize file recording
                         if start_recording:
                             is_recording = True
@@ -199,7 +235,6 @@ def video_feed():
                             is_recording = False
                             stop_recording = False
                             print("Stopped Recording")
-
                         # Change color to rgb from gray to allow for the coloring of circles
                         frame = cv2.cvtColor(frame, cv2.COLOR_GRAY2RGB)
                         # draw CMS position on frame as green circle
@@ -214,6 +249,8 @@ def video_feed():
                         # If the frame was not successfully read, yield a "blank frame
                         yield (b'--frame\r\n'
                                b'Content-Type: image/jpeg\r\n\r\n\r\n')
+        await queue.put(None)
+        await tracking_task
     # Return the video feed as a multipart/x-mixed-replace response
     return Response(gen(), mimetype='multipart/x-mixed-replace; boundary=frame')
 
