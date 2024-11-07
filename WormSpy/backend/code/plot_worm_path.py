@@ -27,10 +27,6 @@ def plot_worm_path(file_path: pathlib.Path, save_plot=True):
     # Create scatter plot with proper column names
     plt.scatter(df['X'], df['Y'], c='black', s=5)
 
-    # Add attraction points
-    plt.scatter(45400, 25400, c='red', alpha=0.3, s=2000, label='Butanone 1:10')
-    plt.scatter(5400, 25400, c='red', alpha=0.3, s=2000, label='Butanone 1:1000')
-
     # Set limits
     plt.xlim(0, 50800)
     plt.ylim(0, 50800)
