@@ -1,21 +1,21 @@
-import queue
-from threading import Lock, Thread
-import EasyPySpin
-from flask import Flask, Response, jsonify, render_template, request
-from flask_cors import CORS, cross_origin
-import math
 import cv2
-from zaber_motion import Library, Units
-from zaber_motion.ascii import Connection, Device
+import math
 import copy
-import pathlib
-from datetime import datetime
-import numpy as np
-import pygame
 import pytz
+import queue
+import pygame
+import pathlib
+import EasyPySpin
+import numpy as np
+from datetime import datetime
+from threading import Lock, Thread
+from zaber_motion import Library, Units, Measurement
 from plot_worm_path import plot_worm_path
+from flask_cors import CORS, cross_origin
 from skimage.filters import threshold_yen
 from skimage.measure import label, regionprops
+from zaber_motion.ascii import Connection, Device
+from flask import Flask, Response, jsonify, render_template, request
 
 app = Flask(__name__, template_folder='production\\templates',
             static_folder='production\\static')
@@ -32,8 +32,8 @@ app.config['CORS_HEADERS'] = 'Content-Type'
 # SET UP CONFIGURATION
 XYmotorport = 'COM6' # Will vary depending on the computer
 Zmotorport = 'COM3' # Will vary depending on the computer
-TOTAL_MM_X = 1.3125  # total width of the FOV in mm (measure)
-TOTAL_MM_Y = 1.05  # total height of the FOV in mm (measure)
+TOTAL_MM_X = 1.92  # total width of the FOV in mm (measure)
+TOTAL_MM_Y = 1.2  # total height of the FOV in mm (measure)
 MM_MST = 20997  # millimeters per microstep
 # Zaber device boundaries
 MAXIMUM_DEVICE_XY_POSITION = 1066667 # initialized, wil be updated by the motors
@@ -44,6 +44,7 @@ ZABER_ORIENTATION_Y = -1 # whether the y direction of the zaber is inverted from
 hist_frame = np.zeros((600, 960, 1), dtype=np.uint8) #change to match frame size of the right camera feed (y,x,1)
 
 # settings for the recording
+FPS = 10 # Brightfield value: MUST MANUALLY CHANGE :( depending on camera model you could detect it from the camera
 timeZone = pytz.timezone("US/Eastern")
 settings = {
     "filepath": str(pathlib.Path.home() / 'WormSpy_video'),
@@ -67,7 +68,6 @@ start_af = False
 heatmap_enabled = False
 track_algorithm = 0
 is_tracking = False
-start_tracking = False
 nodeIndex = 0
 mutex = Lock()
 isManualEnabled = False
@@ -105,7 +105,7 @@ def video_feed():
         cap.release()
     # function to generate a stream of image frames for the tracking video feed
     def gen():
-        global xMotor, yMotor, zMotor, start_recording, stop_recording, settings, is_tracking, start_tracking, serialPort, af_enabled, start_af, stop_stream, nodeIndex, track_algorithm, MAXIMUM_DEVICE_XY_POSITION, MAXIMUM_DEVICE_Z_POSITION
+        global xMotor, yMotor, zMotor, start_recording, stop_recording, settings, is_tracking, serialPort, af_enabled, start_af, stop_stream, nodeIndex, track_algorithm, MAXIMUM_DEVICE_XY_POSITION, MAXIMUM_DEVICE_Z_POSITION
         start_af = False
         start_recording = False
         stop_recording = False
@@ -136,7 +136,6 @@ def video_feed():
                     resolution = cap.get(cv2.CAP_PROP_FRAME_WIDTH), cap.get(cv2.CAP_PROP_FRAME_HEIGHT)
                     initial_coords = [(resolution[0]/2), resolution[1]/2] # INITIALIZE IN CENTER OF FRAME
                     calculated_worm_coords = initial_coords
-                    fps = 10 # MUST MANUALLY CHANGE :( depending on camera model you could detect it from the camera
                     if frame.dtype != np.uint8: #check if frame is 8 bit and grayscale and convert if not
                         frame = cv2.normalize(frame, None, 0, 255, cv2.NORM_MINMAX, dtype=cv2.CV_8U) 
                     if len(frame.shape) == 3:
@@ -145,10 +144,8 @@ def video_feed():
                     height, width = frame_downsample.shape
                     downsample_size = (int(height), int(width))
                     if success:
-                        if start_tracking:
-                            xPos = xMotor.get_position(unit=Units.NATIVE)
-                            yPos = yMotor.get_position(unit=Units.NATIVE)
-                            start_tracking = False
+                        xPos = xMotor.get_position(unit=Units.LENGTH_MICROMETRES)
+                        yPos = yMotor.get_position(unit=Units.LENGTH_MICROMETRES)
                         if is_tracking: ### BUTTON HAS BEEN PRESSED
                             if track_algorithm == 0: ### BRIGHT BACKGROUND THRESHOLDING
                                 processed_frame = Thresh_Light_Background(frame_downsample)
@@ -164,7 +161,8 @@ def video_feed():
                             calculated_worm_coords = (worm_coords[0] , worm_coords[1])
                             # MUTEX POSITION 1
                             if not mutex.locked():
-                                xPos, yPos = trackWorm(
+                                # returns microsteps
+                                x_report, y_report = trackWorm(
                                 (calculated_worm_coords[0], calculated_worm_coords[1]), xMotor, yMotor, xPos, yPos, resolution) # TRACKING FUNCTION
                         # Reinitialize file recording
                         if start_recording:
@@ -176,25 +174,24 @@ def video_feed():
                                 project_path.mkdir(parents=True, exist_ok=False)
                             # initialize video writer
                             fourcc = cv2.VideoWriter_fourcc(*'XVID')
-                            video_writer = cv2.VideoWriter(str(project_path / "brightfield.avi"), fourcc, fps, (frame.shape[1], frame.shape[0]), isColor=False)
-                            dtype = [('timestamp', 'U26'), ('X', 'f8'), ('Y', 'f8')]
+                            video_writer = cv2.VideoWriter(str(project_path / "brightfield.avi"), fourcc, FPS, (frame.shape[1], frame.shape[0]), isColor=False)
+                            dtype = [('timestamp', 'U26'), ('X_motor', 'f8'), ('Y_motor', 'f8'), ('X_centroid', 'f8'), ('Y_centroid', 'f8')]
                             csvDump = np.zeros(0, dtype=dtype)
                             print("Start Brightfield Recording")
                             start_recording = False
                         # add frame to recording buffer if currently recording
                         if is_recording:
-                            x_report = xMotor.get_position(unit=Units.LENGTH_MICROMETRES)
-                            y_report = yMotor.get_position(unit=Units.LENGTH_MICROMETRES)
+                            # convert microsteps to micrometres
                             dt = datetime.now(tz=timeZone).strftime("%H:%M:%S.%f")
-                            csvDump = np.append(csvDump, np.array([(dt, x_report, y_report)], dtype=dtype))
+                            csvDump = np.append(csvDump, np.array([(dt, xPos, yPos, x_report, y_report)], dtype=dtype))
                             video_writer.write(frame)
                         # convert recording buffer to file
                         if stop_recording:
                             video_writer.release()
                             csv_file = settings["filename"] + dtstr + ".csv"
                             csv_file_path = pathlib.Path(settings["filepath"]) / folder_name / csv_file
-                            header = "timestamp,X,Y"  # Add header
-                            np.savetxt(str(csv_file_path), csvDump, delimiter=",", header=header, comments="", fmt='%s,%f,%f')
+                            header = "timestamp,X_motor,Y_motor,X_centroid,Y_centroid"  # Add header
+                            np.savetxt(str(csv_file_path), csvDump, delimiter=",", header=header, comments="", fmt='%s,%f,%f,%f,%f')
                             plot_worm_path(csv_file_path) # creates a plot of the worm path in the same directory as the csv file
                             is_recording = False
                             stop_recording = False
@@ -369,11 +366,9 @@ def node_index():
 @cross_origin()
 @app.route("/toggle_tracking", methods=['POST'])
 def toggle_tracking():
-    global is_tracking, start_tracking, track_algorithm
+    global is_tracking, track_algorithm
     is_tracking = request.json['is_tracking'] == "True"
     track_algorithm = int(request.json['tracking_algorithm'])
-    # start tracking if tracking has been requested
-    start_tracking = is_tracking
     return str(is_tracking)
 
 @cross_origin()
@@ -443,7 +438,7 @@ def smoothing(worm_coords, previous_worm_coords): # exponential smoothing functi
     print("X: " + str(new_stage_x) + " Y: " + str(new_stage_y))
     return (new_stage_x, new_stage_y)
 
-def simpleToCenter(centroidX, centroidY,resolution):
+def simpleToCenter(centroidX, centroidY, resolution):
     # calculate the percent the position is from the edge of the frame
     percentX = float(centroidX) / float(resolution[0])
     percentY = float(centroidY) / float(resolution[1])
