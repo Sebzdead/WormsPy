@@ -110,7 +110,7 @@ def video_feed():
         start_recording = False
         stop_recording = False
         is_recording = False
-        factor = 4
+        factor = 2
         xPos = 0
         yPos = 0
         with Connection.open_serial_port(XYmotorport) as connection:
@@ -475,8 +475,7 @@ def trackWorm(input, deviceX: Device, deviceY: Device, deviceXPos, deviceYPos, r
 
 def Thresh_Light_Background(frame):
     blurred_frame = cv2.GaussianBlur(frame, (33, 33), 99)
-    # Convert the image to a binary image
-    thresh = cv2.adaptiveThreshold(blurred_frame, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY_INV, 69, 3)
+    thresh = cv2.adaptiveThreshold(blurred_frame, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY_INV, 99, 5)
     kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
     eroded_image = cv2.erode(thresh, kernel, iterations=3)
     processed_frame = cv2.dilate(eroded_image, kernel, iterations=1)
