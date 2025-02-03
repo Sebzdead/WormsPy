@@ -9,7 +9,7 @@ import EasyPySpin
 import numpy as np
 from datetime import datetime
 from threading import Lock, Thread
-from zaber_motion import Library, Units, Measurement
+from zaber_motion import Library, Units
 from plot_worm_path import plot_worm_path
 from flask_cors import CORS, cross_origin
 from skimage.filters import threshold_yen
@@ -61,8 +61,8 @@ settings = {
 stop_stream = False
 start_recording = False
 stop_recording = False
-start_recording_fl = False
-stop_recording_fl = False
+start_recording_r = False
+stop_recording_r = False
 af_enabled = False
 start_af = False
 heatmap_enabled = False
@@ -73,7 +73,8 @@ mutex = Lock()
 isManualEnabled = False
 leftCam = None # leave as None, will be set by the user in the UI
 rightCam = None # leave as None, will be set by the user in the UI
-frame_queue = queue.Queue() # Initialize the queue
+frame_queue_left = queue.Queue() # Initialize the queue
+frame_queue_right = queue.Queue() # Initialize the queue
 Library.enable_device_db_store() # Initialize the device database for Zaber communication
 
 def tiff_writer(project_path, frame_queue):
@@ -166,28 +167,27 @@ def video_feed():
                                 (calculated_worm_coords[0], calculated_worm_coords[1]), xMotor, yMotor, xPos, yPos, resolution) # TRACKING FUNCTION
                         # Reinitialize file recording
                         if start_recording:
+                            print("Start Left Recording")
+                            start_recording = False
                             is_recording = True
-                            dtstr = datetime.now(tz=timeZone).strftime("%d-%m-%Y_%H-%M")
+                            dt = datetime.now(tz=timeZone)
+                            dtstr = dt.strftime("%d-%m-%Y_%H-%M")
                             folder_name = settings["filename"] + '_' + dtstr
-                            project_path: pathlib.Path = filepathToDirectory(settings["filepath"]) / folder_name
+                            project_path: pathlib.Path = filepathToDirectory(settings["filepath"]) / folder_name / 'leftcam_tiffs'
                             if not project_path.exists(): 
                                 project_path.mkdir(parents=True, exist_ok=False)
-                            # initialize video writer
-                            fourcc = cv2.VideoWriter_fourcc(*'XVID')
-                            video_writer = cv2.VideoWriter(str(project_path / "brightfield.avi"), fourcc, FPS, (frame.shape[1], frame.shape[0]), isColor=False)
                             dtype = [('timestamp', 'U26'), ('X_motor', 'f8'), ('Y_motor', 'f8'), ('X_centroid', 'f8'), ('Y_centroid', 'f8')]
                             csvDump = np.zeros(0, dtype=dtype)
-                            print("Start Brightfield Recording")
-                            start_recording = False
-                        # add frame to recording buffer if currently recording
+                            # Start the writer thread
+                            writer_thread = Thread(target=tiff_writer, args=(project_path, frame_queue_left))
+                            writer_thread.start()
                         if is_recording:
-                            # convert microsteps to micrometres
+                            frame = cv2.resize(frame, resolution)
+                            frame_queue_left.put(frame)  # Add frame to queue instead of writing directly
                             dt = datetime.now(tz=timeZone).strftime("%H:%M:%S.%f")
                             csvDump = np.append(csvDump, np.array([(dt, xPos, yPos, x_report, y_report)], dtype=dtype))
-                            video_writer.write(frame)
-                        # convert recording buffer to file
                         if stop_recording:
-                            video_writer.release()
+                            print("Stopped Left Recording")
                             csv_file = settings["filename"] + dtstr + ".csv"
                             csv_file_path = pathlib.Path(settings["filepath"]) / folder_name / csv_file
                             header = "timestamp,X_motor,Y_motor,X_centroid,Y_centroid"  # Add header
@@ -195,8 +195,8 @@ def video_feed():
                             plot_worm_path(csv_file_path) # creates a plot of the worm path in the same directory as the csv file
                             is_recording = False
                             stop_recording = False
-                            print("Stopped Recording")
-
+                            frame_queue_left.put(None)  # Signal the writer thread to stop
+                            writer_thread.join()  # Wait for the writer thread to finish
                         # Change color to rgb from gray to allow for the coloring of circles
                         frame = cv2.cvtColor(frame, cv2.COLOR_GRAY2RGB)
                         # draw CMS position on frame as green circle
@@ -226,7 +226,7 @@ def video_feed_fluorescent():
     if stop_stream:
         cap2.release()
     def gen():
-        global heatmap_enabled, start_recording_fl, stop_recording_fl, settings, is_tracking, serialPort, hist_frame
+        global heatmap_enabled, start_recording_r, stop_recording_r, settings, is_tracking, serialPort, hist_frame
         is_recording = False
         while (cap2.isOpened()):
             # Read a frame from the video capture
@@ -240,27 +240,27 @@ def video_feed_fluorescent():
                     # Apply the jet color map to the frame
                     frame_8bit = cv2.applyColorMap(frame_8bit, cv2.COLORMAP_JET)
                 hist_frame = copy.copy(frame_8bit)
-                if start_recording_fl:
-                    print("Start Fluorescent Recording")
-                    start_recording_fl = False
+                if start_recording_r:
+                    print("Start Right Recording")
+                    start_recording_r = False
                     is_recording = True
                     dt = datetime.now(tz=timeZone)
                     dtstr = dt.strftime("%d-%m-%Y_%H-%M")
                     folder_name = settings["filename"] + '_' + dtstr
-                    project_path: pathlib.Path = filepathToDirectory(settings["filepath"]) / folder_name / 'fluorescent_tiffs'
+                    project_path: pathlib.Path = filepathToDirectory(settings["filepath"]) / folder_name / 'rightcam_tiffs'
                     if not project_path.exists(): 
                         project_path.mkdir(parents=True, exist_ok=False)
                     # Start the writer thread
-                    writer_thread = Thread(target=tiff_writer, args=(project_path, frame_queue))
+                    writer_thread = Thread(target=tiff_writer, args=(project_path, frame_queue_right))
                     writer_thread.start()
                 if is_recording:
                     frame = cv2.resize(frame, resolution)
-                    frame_queue.put(frame)  # Add frame to queue instead of writing directly
-                if stop_recording_fl:
-                    print("Stopped Fluorescent Recording")
+                    frame_queue_right.put(frame)  # Add frame to queue instead of writing directly
+                if stop_recording_r:
+                    print("Stopped Right Recording")
                     is_recording = False
-                    stop_recording_fl = False
-                    frame_queue.put(None)  # Signal the writer thread to stop
+                    stop_recording_r = False
+                    frame_queue_right.put(None)  # Signal the writer thread to stop
                     writer_thread.join()  # Wait for the writer thread to finish
                 ret, jpeg = cv2.imencode('.png', frame_8bit)
                 yield (b'--frame\r\n'
@@ -311,23 +311,23 @@ def get_hist():
 @cross_origin()
 @app.route("/start_recording", methods=['POST'])
 def start_recording():
-    global start_recording, start_recording_fl, settings
+    global start_recording, start_recording_r, settings
     # Update the settings with the data from the request body
     settings["filepath"] = request.json["filepath"]
     settings["filename"] = request.json["filename"]
     # Set the recording flag to True
     start_recording = True
-    start_recording_fl = True
+    start_recording_r = True
     # return jsonify({"message": "Recording started"})
     return str(settings)
 
 @cross_origin()
 @app.route("/stop_recording", methods=['POST'])
 def stop_recording():
-    global stop_recording, stop_recording_fl
+    global stop_recording, stop_recording_r
     # Stop the recording of both video feeds
     stop_recording = True
-    stop_recording_fl = True
+    stop_recording_r = True
     return jsonify({"message": "Recording stopped"})
 
 @cross_origin()
@@ -487,12 +487,10 @@ def Thresh_Fluorescent_Marker(frame, new_size):
     gamma = cv2.LUT(frame, table)
     # Apply Gaussian blur to the frame
     blurred_frame = cv2.GaussianBlur(gamma, (1, 1), 11)
-    # resize the frame to 1/4 of the original size
-    resized_frame = cv2.resize(blurred_frame, new_size, interpolation = cv2.INTER_AREA)
     # Apply Yen's thresholding
-    thresh = threshold_yen(resized_frame)
+    thresh = threshold_yen(blurred_frame)
     # Create a binary image by applying the threshold
-    processed_frame = resized_frame > thresh
+    processed_frame = blurred_frame > thresh
     processed_frame = processed_frame.astype(np.uint8) * 255
     return processed_frame
 
