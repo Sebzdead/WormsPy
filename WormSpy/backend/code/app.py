@@ -137,14 +137,16 @@ def video_feed():
                     resolution = cap.get(cv2.CAP_PROP_FRAME_WIDTH), cap.get(cv2.CAP_PROP_FRAME_HEIGHT)
                     initial_coords = [(resolution[0]/2), resolution[1]/2] # INITIALIZE IN CENTER OF FRAME
                     calculated_worm_coords = initial_coords
-                    if frame.dtype != np.uint8: #check if frame is 8 bit and grayscale and convert if not
-                        frame = cv2.normalize(frame, None, 0, 255, cv2.NORM_MINMAX, dtype=cv2.CV_8U) 
-                    if len(frame.shape) == 3:
-                        frame = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-                    frame_downsample = cv2.resize(frame, (int(frame.shape[1] / factor), int(frame.shape[0] / factor)), interpolation = cv2.INTER_AREA) # Downsample the frame to 1/4 of the original size
-                    height, width = frame_downsample.shape
-                    downsample_size = (int(height), int(width))
                     if success:
+                        if frame.dtype != np.uint8: #check if frame is 8 bit and grayscale and convert if not
+                            display_frame = cv2.normalize(frame, None, 0, 255, cv2.NORM_MINMAX, dtype=cv2.CV_8U)
+                        else:
+                            display_frame = frame
+                        if len(display_frame.shape) == 3:
+                            display_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+                        frame_downsample = cv2.resize(display_frame, (int(display_frame.shape[1] / factor), int(display_frame.shape[0] / factor)), interpolation = cv2.INTER_AREA) # Downsample the frame to 1/4 of the original size
+                        height, width = frame_downsample.shape
+                        downsample_size = (int(height), int(width))
                         xPos = xMotor.get_position(unit=Units.LENGTH_MICROMETRES)
                         yPos = yMotor.get_position(unit=Units.LENGTH_MICROMETRES)
                         if is_tracking: ### BUTTON HAS BEEN PRESSED
@@ -198,12 +200,12 @@ def video_feed():
                             frame_queue_left.put(None)  # Signal the writer thread to stop
                             writer_thread.join()  # Wait for the writer thread to finish
                         # Change color to rgb from gray to allow for the coloring of circles
-                        frame = cv2.cvtColor(frame, cv2.COLOR_GRAY2RGB)
+                        display_frame = cv2.cvtColor(display_frame, cv2.COLOR_GRAY2RGB)
                         # draw CMS position on frame as green circle
-                        cv2.circle(frame, (int(calculated_worm_coords[0]), int(calculated_worm_coords[1])), 9, (0, 255, 0), -1)
+                        cv2.circle(display_frame, (int(calculated_worm_coords[0]), int(calculated_worm_coords[1])), 9, (0, 255, 0), -1)
                         # add skeleton overlay to image for DLC
                         #frame = draw_skeleton(frame, posArr)
-                        ret, jpeg = cv2.imencode('.png', frame)
+                        ret, jpeg = cv2.imencode('.png', display_frame)
                         # Yield the encoded frame
                         yield (b'--frame\r\n'
                                b'Content-Type: image/jpeg\r\n\r\n' + jpeg.tobytes() + b'\r\n')
