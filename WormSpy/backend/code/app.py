@@ -180,7 +180,7 @@ def video_feed():
                     # height, width = frame_downsample.shape
                     # downsample_size = (int(height), int(width))
                     if success:
-                        await queue.put(frame_downsample)
+                        queue.put(frame_downsample)
                         # if start_tracking:
                         #     xPos = xMotor.get_position(unit=Units.NATIVE)
                         #     yPos = yMotor.get_position(unit=Units.NATIVE)
