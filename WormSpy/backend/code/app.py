@@ -67,6 +67,8 @@ af_enabled = False
 start_af = False
 heatmap_enabled = False
 track_algorithm = 0
+use_avi = True
+use_avi_fl = False
 is_tracking = False
 nodeIndex = 0
 mutex = Lock()
@@ -74,6 +76,7 @@ isManualEnabled = False
 leftCam = None # leave as None, will be set by the user in the UI
 rightCam = None # leave as None, will be set by the user in the UI
 frame_queue = queue.Queue() # Initialize the queue
+frame_queue_fl = queue.Queue() # Initialize the queue for the fluorescent video feed
 Library.enable_device_db_store() # Initialize the device database for Zaber communication
 
 def tiff_writer(project_path, frame_queue):
@@ -105,7 +108,7 @@ def video_feed():
         cap.release()
     # function to generate a stream of image frames for the tracking video feed
     def gen():
-        global xMotor, yMotor, zMotor, start_recording, stop_recording, settings, is_tracking, serialPort, af_enabled, start_af, stop_stream, nodeIndex, track_algorithm, MAXIMUM_DEVICE_XY_POSITION, MAXIMUM_DEVICE_Z_POSITION
+        global xMotor, yMotor, zMotor, start_recording, stop_recording, settings, is_tracking, serialPort, af_enabled, start_af, stop_stream, nodeIndex, track_algorithm, use_avi, MAXIMUM_DEVICE_XY_POSITION, MAXIMUM_DEVICE_Z_POSITION
         start_af = False
         start_recording = False
         stop_recording = False
@@ -172,9 +175,14 @@ def video_feed():
                             project_path: pathlib.Path = filepathToDirectory(settings["filepath"]) / folder_name
                             if not project_path.exists(): 
                                 project_path.mkdir(parents=True, exist_ok=False)
-                            # initialize video writer
-                            fourcc = cv2.VideoWriter_fourcc(*'XVID')
-                            video_writer = cv2.VideoWriter(str(project_path / "brightfield.avi"), fourcc, FPS, (frame.shape[1], frame.shape[0]), isColor=False)
+                            if use_avi:
+                                # initialize video writer
+                                fourcc = cv2.VideoWriter_fourcc(*'XVID')
+                                video_writer = cv2.VideoWriter(str(project_path / "brightfield.avi"), fourcc, FPS, (frame.shape[1], frame.shape[0]), isColor=False)
+                            else:
+                                # Start the writer thread
+                                writer_thread = Thread(target=tiff_writer, args=(project_path, frame_queue))
+                                writer_thread.start()
                             dtype = [('timestamp', 'U26'), ('X_motor', 'f8'), ('Y_motor', 'f8'), ('X_centroid', 'f8'), ('Y_centroid', 'f8')]
                             csvDump = np.zeros(0, dtype=dtype)
                             print("Start Brightfield Recording")
@@ -184,10 +192,18 @@ def video_feed():
                             # convert microsteps to micrometres
                             dt = datetime.now(tz=timeZone).strftime("%H:%M:%S.%f")
                             csvDump = np.append(csvDump, np.array([(dt, xPos, yPos, x_report, y_report)], dtype=dtype))
-                            video_writer.write(frame)
+                            if use_avi:
+                                video_writer.write(frame)
+                            else:
+                                frame.cv2.resize(frame, resolution)
+                                frame_queue.put(frame)
                         # convert recording buffer to file
                         if stop_recording:
-                            video_writer.release()
+                            if use_avi:
+                                video_writer.release()
+                            else:
+                                frame_queue.put(None)
+                                writer_thread.join()
                             csv_file = settings["filename"] + dtstr + ".csv"
                             csv_file_path = pathlib.Path(settings["filepath"]) / folder_name / csv_file
                             header = "timestamp,X_motor,Y_motor,X_centroid,Y_centroid"  # Add header
@@ -226,7 +242,7 @@ def video_feed_fluorescent():
     if stop_stream:
         cap2.release()
     def gen():
-        global heatmap_enabled, start_recording_fl, stop_recording_fl, settings, is_tracking, serialPort, hist_frame
+        global heatmap_enabled, start_recording_fl, stop_recording_fl, settings, is_tracking, serialPort, hist_frame, use_avi_fl
         is_recording = False
         while (cap2.isOpened()):
             # Read a frame from the video capture
@@ -250,18 +266,28 @@ def video_feed_fluorescent():
                     project_path: pathlib.Path = filepathToDirectory(settings["filepath"]) / folder_name / 'fluorescent_tiffs'
                     if not project_path.exists(): 
                         project_path.mkdir(parents=True, exist_ok=False)
-                    # Start the writer thread
-                    writer_thread = Thread(target=tiff_writer, args=(project_path, frame_queue))
-                    writer_thread.start()
+                    if use_avi_fl:
+                        fourcc = cv2.VideoWriter_fourcc(*'XVID')
+                        video_writer_fl = cv2.VideoWriter(str(project_path / "brightfield.avi"), fourcc, FPS, (frame.shape[1], frame.shape[0]), isColor=False)
+                    else:
+                        # Start the writer thread
+                        writer_thread_fl = Thread(target=tiff_writer, args=(project_path, frame_queue_fl))
+                        writer_thread_fl.start()
                 if is_recording:
-                    frame = cv2.resize(frame, resolution)
-                    frame_queue.put(frame)  # Add frame to queue instead of writing directly
+                    if use_avi_fl:
+                        video_writer_fl.write(frame)
+                    else:
+                        frame = cv2.resize(frame, resolution)
+                        frame_queue_fl.put(frame)  # Add frame to queue instead of writing directly
                 if stop_recording_fl:
                     print("Stopped Fluorescent Recording")
                     is_recording = False
                     stop_recording_fl = False
-                    frame_queue.put(None)  # Signal the writer thread to stop
-                    writer_thread.join()  # Wait for the writer thread to finish
+                    if use_avi_fl:
+                        video_writer_fl.release()
+                    else:
+                        frame_queue_fl.put(None)  # Signal the writer thread to stop
+                        writer_thread_fl.join()  # Wait for the writer thread to finish
                 ret, jpeg = cv2.imencode('.png', frame_8bit)
                 yield (b'--frame\r\n'
                     b'Content-Type: image/jpeg\r\n\r\n' + jpeg.tobytes() + b'\r\n')
@@ -370,6 +396,14 @@ def toggle_tracking():
     is_tracking = request.json['is_tracking'] == "True"
     track_algorithm = int(request.json['tracking_algorithm'])
     return str(is_tracking)
+
+@cross_origin()
+@app.route("/toggle_avi", methods=['POST'])
+def toggle_avi():
+    global use_avi, use_avi_fl
+    use_avi = request.json['use_avi'] == "True"
+    use_avi_fl = request.json['use_avi_fl'] == "True"
+    return str(use_avi)+ ',' + str(use_avi_fl)
 
 @cross_origin()
 @app.route("/toggle_af", methods=['POST'])
