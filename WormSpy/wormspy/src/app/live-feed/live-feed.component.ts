@@ -35,6 +35,8 @@ export class LiveFeedComponent implements OnInit {
   // the current histogram from the live feed flourescent
   public liveFeedUrlHistogram!: string;
 
+  public hist_max_feed: string = '0'; 
+
   // array range values
   indexMin = 0;
   indexMax = 2;
@@ -112,6 +114,7 @@ export class LiveFeedComponent implements OnInit {
           this.liveFeedUrlLeft = this.apiUrl + '/video_feed';
           this.liveFeedUrlRight = this.apiUrl + '/video_feed_fluorescent';
           this.liveFeedUrlHistogram = this.apiUrl + '/get_hist';
+          this.hist_max_feed = this.apiUrl + '/stream_max'
         });
       // this.sockService.get_hist().subscribe((data: string) => {
       //   this.liveFeedUrlHistogram = data;

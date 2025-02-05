@@ -266,20 +266,6 @@ h1 {
     display: flex;
     flex-wrap: wrap;
 
-    .hist-feed {
-      display: inline-block;
-      margin: 5px;
-      border: 1px solid #ccc;
-
-      img {
-        // position: absolute;
-        width: 100%;
-        // height: 100%; // Fix for camera 2 being too zoomed in
-        // margin-top: 19%;
-        // margin-bottom: 19%;
-      }
-    }
-
     .manual-row {
       display: flex;
       flex-direction: row;
@@ -352,4 +338,30 @@ h1 {
       }
     }
   }
+}
+
+
+.hist-feed {
+  display: inline-block;
+  margin: 5px;
+  border: 1px solid #ccc;
+
+  img {
+    // position: absolute;
+    width: 100%;
+    // height: 100%; // Fix for camera 2 being too zoomed in
+    // margin-top: 19%;
+    // margin-bottom: 19%;
+  }
+
+}
+
+#hist_max {
+  display: block;
+  position: relative;
+  right: -92%;
+  top: 2%;
+  color: $button-background-color;
+  font-weight: 600;
+  font-size: 14pt;
 }
