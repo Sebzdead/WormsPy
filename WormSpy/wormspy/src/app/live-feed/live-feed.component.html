@@ -4,22 +4,28 @@
     <div class="live-feed-block">
       <div class="live-feed-container">
         <div class="live-feed" *ngIf="isLiveFeedEnabled">
-          <img [src]="liveFeedUrlNormal" alt="" />
+          <img [src]="liveFeedUrlLeft" alt="" />
         </div>
         <div class="live-feed" *ngIf="isLiveFeedEnabled">
-          <img id="cam2" [src]="liveFeedUrlFluorescent" alt="" />
+          <img id="cam2" [src]="liveFeedUrlRight" alt="" />
         </div>
       </div>
       <div class="floating-island">
         <div class="recording-settings" *ngIf="isLiveFeedEnabled">
-          <img src="assets/images/Controller.png" alt="" id="keyboard">
-          <div class="manual-row">
-            <mat-button-toggle id="recordButton" (click)="toggleManualMode()">{{
-            manualEnabled ? "Disable Manual-Mode" : "Enable Manual-Mode"
-            }}</mat-button-toggle>
-            <mat-button-toggle id="recordButton" (click)="moveToCenter()">{{"Center"}}</mat-button-toggle>
-          </div>
-          
+          <img src="assets/images/Controller.png" alt="" id="keyboard" />
+          <mat-button-toggle
+            class="toggle_button"
+            (click)="toggleManualMode()"
+            >{{
+              manualEnabled ? "Disable Manual-Mode" : "Enable Manual-Mode"
+            }}</mat-button-toggle
+          >
+          <mat-button-toggle class="toggle_button" (click)="moveToCenter()">{{
+            "Center"
+          }}</mat-button-toggle>
+          <!-- <div class="manual-row">
+            
+          </div> -->
         </div>
         <div class="live-feed-settings" *ngIf="!isLiveFeedEnabled">
           <div class="top-row-feed-settings">
@@ -32,7 +38,10 @@
             </mat-form-field>
             <mat-form-field>
               <mat-label>Select Right Camera </mat-label>
-              <mat-select [(value)]="rightCamera" [disabled]="isLiveFeedEnabled">
+              <mat-select
+                [(value)]="rightCamera"
+                [disabled]="isLiveFeedEnabled"
+              >
                 <mat-option value="1">Camera 1</mat-option>
                 <mat-option value="2">Camera 2</mat-option>
               </mat-select>
@@ -40,94 +49,123 @@
           </div>
           <div class="bottom-row-feed-settings">
             <div class="bottom-row-left-feed-settings">
-              <mat-form-field class="example-full-width">
+              <mat-form-field>
                 <mat-label>Select DLC node (optional)</mat-label>
-                <input matInput type="number" [formControl]="nodeIndex" [disabled]="isLiveFeedEnabled"
-                  (ngModelChange)="sendNodeIndex()" />
+                <input
+                  matInput
+                  type="number"
+                  [formControl]="nodeIndex"
+                  [disabled]="isLiveFeedEnabled"
+                  (ngModelChange)="sendNodeIndex()"
+                />
               </mat-form-field>
-              
             </div>
-            <div class="bottom-row-right-feed-settings">
-              <!-- <mat-form-field class="example-full-width">
-                <mat-label>Serial Port</mat-label>
-                <input matInput type="text" value="com4" [formControl]="serialInput" [disabled]="isLiveFeedEnabled" />
-              </mat-form-field> -->
-            </div>
+            <div class="bottom-row-right-feed-settings"></div>
           </div>
           <div class="bottom-row-feed-settings">
-            <mat-button-toggle (click)="toggleLiveFeed()" id="livestream-toggle">{{
-              isLiveFeedEnabled ? "Stop Live Feed" : "Start Live Feed"
-              }}</mat-button-toggle>
+            <mat-button-toggle
+              (click)="toggleLiveFeed()"
+              id="livestream-toggle"
+              >{{
+                isLiveFeedEnabled ? "Stop Live Feed" : "Start Live Feed"
+              }}</mat-button-toggle
+            >
             <!-- </div> -->
           </div>
         </div>
-        <div class="live-feed-settings" *ngIf="isLiveFeedEnabled">
-          <div class="top-row-feed-settings-live">
-            <mat-form-field>
-              <mat-label>Select Tracking Algorithm </mat-label>
-              <mat-select [(value)]="trackingAlgorithm" [disabled]="isTrackingEnabled">
-                <mat-option value="0">Threshold Bright Tracking</mat-option>
-                <mat-option value="1">Fluorescent Marker Tracking</mat-option>
-                <mat-option value="2">DeepLabCut Tracking</mat-option>
-              </mat-select>
-            </mat-form-field>
-            <mat-button-toggle (click)="toggleTracking()">{{
-              isTrackingEnabled ? "Disable Tracking" : "Enable Tracking"
-              }}</mat-button-toggle>
+        <div class="function-settings" *ngIf="isLiveFeedEnabled">
+          <!-- <div class="top-row-feed-settings-live">
+          </div> -->
+          <mat-form-field>
+            <mat-label>Select Tracking Algorithm </mat-label>
+            <mat-select
+              [(value)]="trackingAlgorithm"
+              [disabled]="isTrackingEnabled"
+            >
+              <mat-option value="0">Threshold Bright Tracking</mat-option>
+              <mat-option value="1">Fluorescent Marker Tracking</mat-option>
+              <mat-option value="2">DeepLabCut Tracking</mat-option>
+            </mat-select>
+          </mat-form-field>
 
-          </div>
-          <div class="bottom-row-feed-settings-live">
+          <!-- <div class="bottom-row-feed-settings-live">
+          </div> -->
+          <div class="buttons">
             <mat-button-toggle (click)="toggleAutofocus()">{{
               isAutofocusEnabled ? "Disable FocusLock" : "Enable FocusLock"
-              }}</mat-button-toggle>
-            <mat-button-toggle (click)="toggleLiveFeed()">{{
-              isLiveFeedEnabled ? "Stop Live Feed" : "Start Live Feed"
-              }}</mat-button-toggle>
+            }}</mat-button-toggle>
+            <!-- <mat-button-toggle (click)="toggleLiveFeed()">{{
+            isLiveFeedEnabled ? "Stop Live Feed" : "Start Live Feed"
+            }}</mat-button-toggle> -->
+            <mat-button-toggle (click)="toggleTracking()">{{
+              isTrackingEnabled ? "Disable Tracking" : "Enable Tracking"
+            }}</mat-button-toggle>
+            <mat-button-toggle
+              class="toggle_button"
+              (click)="toggleHeatmap()"
+              >{{
+                heatmapOn ? "Disable Heatmap" : "Enable Heatmap"
+              }}</mat-button-toggle
+            >
           </div>
         </div>
+
         <div class="recording-settings" *ngIf="isLiveFeedEnabled">
           <div class="camera-settings">
-            <!-- <div>
-              <p>Select video folder</p>
-              <input type="file" name="folder" id="folder" multiple webkitdirectory
-                (change)="selectDirectoryRight(directory.files)" #directory />
-            </div> -->
-            <mat-form-field class="example-full-width">
+            <mat-form-field>
               <mat-label>Directory Path</mat-label>
-              <input matInput type="text" placeholder="C:/user/steve/documents/wormspy/" [formControl]="folder" />
+              <input
+                matInput
+                type="text"
+                placeholder="C:/user/steve/documents/wormspy/"
+                [formControl]="folder"
+              />
             </mat-form-field>
-            <mat-form-field class="example-full-width">
+            <mat-form-field>
               <mat-label>Filename</mat-label>
-              <input matInput type="text" placeholder="recording1" [formControl]="filename" />
+              <input
+                matInput
+                type="text"
+                placeholder="recording1"
+                [formControl]="filename"
+              />
             </mat-form-field>
+            <div class="avi-div">
+              <p>Left File Type:</p>
+              <mat-button-toggle-group
+                name="left_filetype"
+                [(value)]="useAviLeft"
+                aria-label="File Type"
+              >
+                <mat-button-toggle [value]="1">.avi</mat-button-toggle>
+                <mat-button-toggle [value]="0">.tiff</mat-button-toggle>
+              </mat-button-toggle-group>
+            </div>
+            <div class="avi-div">
+              <p>Right File Type:</p>
+              <mat-button-toggle-group
+                name="right_filetype"
+                [(value)]="useAviRight"
+                aria-label="File Type"
+              >
+                <mat-button-toggle [value]="1">.avi</mat-button-toggle>
+                <mat-button-toggle [value]="0">.tiff</mat-button-toggle>
+              </mat-button-toggle-group>
+            </div>
           </div>
-          <mat-button-toggle id="recordButton" (click)="toggleRecording()">{{
-            isRecording ? "Stop Recording" : "Start Recording"
-            }}</mat-button-toggle>
+          <mat-button-toggle
+            class="toggle_button"
+            (click)="toggleRecording()"
+            >{{
+              isRecording ? "Stop Recording" : "Start Recording"
+            }}</mat-button-toggle
+          >
         </div>
-        <!-- <div class="recording-settings" *ngIf="isLiveFeedEnabled">
-          <div class="camera-settings">
-            <h4>Right Camera Settings</h4>
-            <mat-form-field class="example-full-width">
-              <mat-label>Exposure</mat-label>
-              <input matInput type="number" placeholder="10000" [formControl]="flourExposure" />
-            </mat-form-field>
-            <mat-form-field class="example-full-width" id="gain">
-              <mat-label>Gain</mat-label>
-              <input matInput type="number" placeholder="0" [formControl]="flourGain" />
-            </mat-form-field>
-          </div>
-          <mat-button-toggle id="recordButton" (click)="updateFlourSettings()">Update Settings</mat-button-toggle>
-        </div> -->
         <div class="recording-settings" *ngIf="isLiveFeedEnabled">
           <div class="hist-feed">
-            <img [src]="liveFeedUrlHistogram" alt="" id="hist">
-            <!-- <img src="https://clipground.com/images/24-bit-png-256x256-17.png" alt="" id="hist"> -->
-
+            <img [src]="liveFeedUrlHistogram" alt="" id="hist" />
           </div>
-          <mat-button-toggle id="recordButton" (click)="toggleHeatmap()">{{
-            heatmapOn ? "Disable Heatmap" : "Enable Heatmap"
-            }}</mat-button-toggle>
+          
         </div>
       </div>
     </div>
