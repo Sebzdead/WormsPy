@@ -237,7 +237,6 @@ def video_feed():
 def video_feed_fluorescent():
     global rightCam, stop_stream
     cap2 = EasyPySpin.VideoCapture(rightCam)
-    resolution_r = cap2.get(cv2.CAP_PROP_FRAME_WIDTH), cap2.get(cv2.CAP_PROP_FRAME_HEIGHT)
     # Check if the camera is opened successfully
     if not cap2.isOpened():
         print("Camera can't open\nexit")
