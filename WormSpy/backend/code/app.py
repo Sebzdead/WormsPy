@@ -71,6 +71,7 @@ is_tracking = False
 nodeIndex = 0
 mutex = Lock()
 isManualEnabled = False
+hist_max = 0
 leftCam = None # leave as None, will be set by the user in the UI
 rightCam = None # leave as None, will be set by the user in the UI
 frame_queue_left = queue.Queue() # Initialize the queue
@@ -136,12 +137,12 @@ def video_feed():
                     calculated_worm_coords = initial_coords
                     if success:
                         if frame.dtype != np.uint8: #check if frame is 8 bit and grayscale and convert if not
-                            display_frame = cv2.normalize(frame, None, 0, 255, cv2.NORM_MINMAX, dtype=cv2.CV_8U)
+                            display_frame_l = cv2.normalize(frame, None, 0, 255, cv2.NORM_MINMAX, dtype=cv2.CV_8U)
                         else:
-                            display_frame = frame
-                        if len(display_frame.shape) == 3:
-                            display_frame = cv2.cvtColor(display_frame, cv2.COLOR_BGR2GRAY)
-                        frame_downsample = cv2.resize(display_frame, (display_frame.shape[1] // factor, display_frame.shape[0] // factor), interpolation=cv2.INTER_AREA)
+                            display_frame_l = frame
+                        if len(display_frame_l.shape) == 3:
+                            display_frame_l = cv2.cvtColor(display_frame_l, cv2.COLOR_BGR2GRAY)
+                        frame_downsample = cv2.resize(display_frame_l, (display_frame_l.shape[1] // factor, display_frame_l.shape[0] // factor), interpolation=cv2.INTER_AREA)
                         height, width = frame_downsample.shape
                         downsample_size = (int(height), int(width))
                         xPos = xMotor.get_position(unit=Units.LENGTH_MICROMETRES)
@@ -161,8 +162,8 @@ def video_feed():
                             # MUTEX POSITION 1
                             if not mutex.locked():
                                 # returns microsteps
-                                x_report, y_report = trackWorm(
-                                (calculated_worm_coords[0], calculated_worm_coords[1]), xMotor, yMotor, xPos, yPos, resolution_l) # TRACKING FUNCTION, returns values for CSV dump
+                                trackWorm(
+                                (calculated_worm_coords[0], calculated_worm_coords[1]), xMotor, yMotor, xPos, yPos, resolution_l) # TRACKING FUNCTION
                         # Reinitialize file recording
                         if start_recording:
                             print("Start Left Recording")
@@ -176,53 +177,43 @@ def video_feed():
                                 project_path.mkdir(parents=True, exist_ok=False)
                             if use_avi_l:
                                 # initialize video writer
-                                fourcc = cv2.VideoWriter_fourcc(*'XVID')
-                                video_writer_l = cv2.VideoWriter(str(project_path / "brightfield.avi"), fourcc, FPS, (resolution_l[1], resolution_l[0]), isColor=False)
+                                fourcc_l = cv2.VideoWriter_fourcc(*'XVID')
+                                video_writer_l = cv2.VideoWriter(str(project_path / "brightfield.avi"), fourcc_l, FPS, (display_frame_l.shape[1], display_frame_l.shape[0]), isColor=False)
                             else:
                                 # Start the writer thread
-                                writer_thread = Thread(target=tiff_writer, args=(project_path, frame_queue_left))
-                                writer_thread.start()
-                            dtype = [('timestamp', 'U26'), ('X_motor', 'f8'), ('Y_motor', 'f8'), ('X_centroid', 'f8'), ('Y_centroid', 'f8')]
+                                writer_thread_l = Thread(target=tiff_writer, args=(project_path, frame_queue_left))
+                                writer_thread_l.start()
+                            dtype = [('timestamp', 'U26'), ('X_position', 'f8'), ('Y_position', 'f8')]
                             csvDump = np.zeros(0, dtype=dtype)
-                            # Start the writer thread
-                            writer_thread = Thread(target=tiff_writer, args=(project_path, frame_queue_left))
-                            writer_thread.start()
                         if is_recording:
                             time = datetime.now(tz=timeZone)
                             dt = time.strftime("%H-%M-%S.%f")
-                            csvDump = np.append(csvDump, np.array([(dt, xPos, yPos, x_report, y_report)], dtype=dtype))
+                            csvDump = np.append(csvDump, np.array([(dt, xPos, yPos)], dtype=dtype))
                             if use_avi_r:
-                                video_writer_l.write(frame)
+                                video_writer_l.write(display_frame_l)
                             else:
                                 frame_queue_left.put((dt, frame))  # Add frame to queue instead of writing directly
                         if stop_recording:
                             print("Stopped Left Recording")
                             if use_avi_l:
-                                video_writer_l.write(display_frame)
-                            else:
-                                # frame.cv2.resize(frame, resolution)
-                                frame_queue_left.put(frame)
-                        # convert recording buffer to file
-                        if stop_recording:
-                            if use_avi_l:
                                 video_writer_l.release()
                             else:
                                 frame_queue_left.put((None, None))
-                                writer_thread.join()
+                                writer_thread_l.join()
                             csv_file = settings["filename"] + dtstr + ".csv"
                             csv_file_path = pathlib.Path(settings["filepath"]) / folder_name / csv_file
-                            header = "timestamp,X_motor,Y_motor,X_centroid,Y_centroid"  # Add header
-                            np.savetxt(str(csv_file_path), csvDump, delimiter=",", header=header, comments="", fmt='%s,%f,%f,%f,%f')
+                            header = "timestamp,X_position,Y_position"  # Add header
+                            np.savetxt(str(csv_file_path), csvDump, delimiter=",", header=header, comments="", fmt='%s,%f,%f')
                             plot_worm_path(csv_file_path) # creates a plot of the worm path in the same directory as the csv file
                             is_recording = False
                             stop_recording = False
                         # Change color to rgb from gray to allow for the coloring of circles
-                        display_frame = cv2.cvtColor(display_frame, cv2.COLOR_GRAY2RGB)
+                        display_frame_l = cv2.cvtColor(display_frame_l, cv2.COLOR_GRAY2RGB)
                         # draw CMS position on frame as green circle
-                        cv2.circle(display_frame, (int(calculated_worm_coords[0]), int(calculated_worm_coords[1])), 9, (0, 255, 0), -1)
+                        cv2.circle(display_frame_l, (int(calculated_worm_coords[0]), int(calculated_worm_coords[1])), 9, (0, 255, 0), -1)
                         # add skeleton overlay to image for DLC
                         #frame = draw_skeleton(frame, posArr)
-                        ret, jpeg = cv2.imencode('.png', display_frame)
+                        ret, jpeg = cv2.imencode('.png', display_frame_l)
                         # Yield the encoded frame
                         yield (b'--frame\r\n'
                                b'Content-Type: image/jpeg\r\n\r\n' + jpeg.tobytes() + b'\r\n')
@@ -245,17 +236,24 @@ def video_feed_fluorescent():
     if stop_stream:
         cap2.release()
     def gen():
-        global heatmap_enabled, start_recording_r, stop_recording_r, settings, is_tracking, serialPort, hist_frame, use_avi_r
+        global heatmap_enabled, start_recording_r, stop_recording_r, settings, is_tracking, serialPort, hist_frame, use_avi_r, hist_max
         is_recording = False
         while (cap2.isOpened()):
             success, frame = cap2.read()
             if success:
                 # Apply the jet color map to the frame
-                display_frame_r = cv2.normalize(frame, None, 0, 255, cv2.NORM_MINMAX, dtype=cv2.CV_8U)
+                if frame.dtype != np.uint8: #check if frame is 8 bit and grayscale and convert if not
+                    display_frame_r = cv2.normalize(frame, None, 0, 255, cv2.NORM_MINMAX, dtype=cv2.CV_8U)
+                else:
+                    display_frame_r = frame
+                if len(display_frame_r.shape) == 3:
+                    record_frame_r = cv2.cvtColor(display_frame_r, cv2.COLOR_BGR2GRAY)
+                else:
+                    record_frame_r = display_frame_r
                 if heatmap_enabled == True:
                     display_frame_r = cv2.applyColorMap(display_frame_r, cv2.COLORMAP_JET) # Apply the jet color map to the frame
                 hist_frame = copy.copy(display_frame_r) #histogram frame
-                max_value = np.max(frame) # max value of the frame
+                hist_max = np.max(frame) # max value of the frame
                 if start_recording_r:
                     print("Start Right Recording")
                     start_recording_r = False
@@ -267,8 +265,8 @@ def video_feed_fluorescent():
                     if not project_path.exists(): 
                         project_path.mkdir(parents=True, exist_ok=False)
                     if use_avi_r:
-                        fourcc = cv2.VideoWriter_fourcc(*'XVID')
-                        video_writer_r = cv2.VideoWriter(str(project_path / "brightfield.avi"), fourcc, FPS, (frame.shape[1], frame.shape[0]), isColor=False)
+                        fourcc_r = cv2.VideoWriter_fourcc(*'XVID')
+                        video_writer_r = cv2.VideoWriter(str(project_path / "brightfield.avi"), fourcc_r, FPS, (record_frame_r.shape[1], record_frame_r.shape[0]), isColor=False)
                     else:
                         # Start the writer thread
                         writer_thread_r = Thread(target=tiff_writer, args=(project_path, frame_queue_right))
@@ -277,7 +275,7 @@ def video_feed_fluorescent():
                     time = datetime.now(tz=timeZone)
                     dt = time.strftime("%H-%M-%S.%f")
                     if use_avi_r:
-                        video_writer_r.write(frame)
+                        video_writer_r.write(record_frame_r)
                     else:
                         frame_queue_right.put((dt, frame))  # Add frame to queue instead of writing directly
                 if stop_recording_r:
@@ -335,12 +333,23 @@ def get_hist():
     return Response(gen(), mimetype='multipart/x-mixed-replace; boundary=frame')
 
 @cross_origin()
+@app.route('/stream_max')
+def stream_max():
+    def gen():
+        global hist_max
+        yield str(hist_max)
+    return Response(gen(), mimetype='text/plain')
+
+
+@cross_origin()
 @app.route("/start_recording", methods=['POST'])
 def start_recording():
-    global start_recording, start_recording_r, settings
+    global start_recording, start_recording_r, settings, use_avi_l, use_avi_r
     # Update the settings with the data from the request body
     settings["filepath"] = request.json["filepath"]
     settings["filename"] = request.json["filename"]
+    use_avi_l = request.json['use_avi_left']
+    use_avi_r = request.json['use_avi_right']
     # Set the recording flag to True
     start_recording = True
     start_recording_r = True
@@ -398,14 +407,6 @@ def toggle_tracking():
     return str(is_tracking)
 
 @cross_origin()
-@app.route("/toggle_avi", methods=['POST'])
-def toggle_avi():
-    global use_avi_l, use_avi_r
-    use_avi_l = request.json['use_avi'] == "True"
-    use_avi_r = request.json['use_avi_fl'] == "True"
-    return str(use_avi_l)+ ',' + str(use_avi_r)
-
-@cross_origin()
 @app.route("/toggle_af", methods=['POST'])
 def toggle_af():
     global af_enabled, start_af
@@ -436,33 +437,6 @@ def move_to_center():
     xMotor.move_absolute(midX, unit=Units.NATIVE, wait_until_idle=False)
     yMotor.move_absolute(midY, unit=Units.NATIVE, wait_until_idle=False)
     return jsonify({"message": "Moved to center"})
-
-def determineFocus(image):
-    # determine focus using thresholding
-    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-    sobelx = cv2.Sobel(gray, cv2.CV_64F, 1, 0, ksize=3)
-    abs_sobelx = cv2.convertScaleAbs(sobelx)
-    focus_measure = int(cv2.Laplacian(abs_sobelx, cv2.CV_64F).var())
-    return focus_measure
-
-def setFocus(zMotor: Device, focus: int, afRollingAvg, afMotorPos):
-    step = 30  # The amount the z motor moves with each call of the function
-    mPos = afMotorPos[-1]
-    if len(afRollingAvg) > 1 and len(afMotorPos) > 1:
-        mPosDiff = afMotorPos[-1] - afMotorPos[-2]
-        # current focus is worse than previous focus
-        if focus < np.mean(afRollingAvg):
-            # move towards previous position
-            if (mPosDiff <= 0 and mPos + step < MAXIMUM_DEVICE_Z_POSITION) or (mPosDiff > 0 and mPos - step > MINIMUM_DEVICE_POSITION):
-                zMotor.move_relative(step, unit=Units.NATIVE, wait_until_idle=False, velocity=0, velocity_unit=Units.NATIVE, acceleration=0, acceleration_unit=Units.NATIVE)
-                return (mPos + step)
-        # current focus is better than previous focus
-        elif focus > np.mean(afRollingAvg):
-            # move away from previous position
-            if mPosDiff <= 0 and mPos - step > MINIMUM_DEVICE_POSITION or mPosDiff > 0 and mPos + step < MAXIMUM_DEVICE_Z_POSITION:
-                zMotor.move_relative(step, unit=Units.NATIVE, wait_until_idle=False, velocity=0, velocity_unit=Units.NATIVE, acceleration=0, acceleration_unit=Units.NATIVE)
-                return (mPos + step)
-    return mPos
 
 def smoothing(worm_coords, previous_worm_coords): # exponential smoothing function. Alpha determines how much smoothing is desirable.
     alpha = 0.7

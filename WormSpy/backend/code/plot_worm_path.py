@@ -22,10 +22,10 @@ def plot_worm_path(file_path: pathlib.Path, save_plot=True):
     df = pd.read_csv(file_path)
 
     # Create figure
-    fig = plt.figure(figsize=(12, 8))
+    plt.figure(figsize=(12, 8))
 
     # Create scatter plot with proper column names
-    plt.scatter(df['X_motor'], df['Y_motor'], c='black', s=5)
+    plt.scatter(df['X_position'], df['Y_position'], c='black', s=5)
 
     # Set limits
     plt.xlim(0, 50800)
