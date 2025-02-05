@@ -35,7 +35,7 @@ export class LiveFeedComponent implements OnInit {
   // the current histogram from the live feed flourescent
   public liveFeedUrlHistogram!: string;
 
-  public hist_max_feed: string = '0'; 
+  public hist_max_feed!: string;
 
   // array range values
   indexMin = 0;
@@ -46,7 +46,7 @@ export class LiveFeedComponent implements OnInit {
     filepath: 'D:\\WormSpy_video\\',
     filename: 'Tracking_Video',
     use_avi_left: 0,
-    use_avi_right: 0
+    use_avi_right: 0,
     // resolution: 256,
     // fps: 10.0,
     // filepath_fl: 'D:\\WormSpy_video\\Calcium',
@@ -89,12 +89,12 @@ export class LiveFeedComponent implements OnInit {
   useAviLeft = 1;
   useAviRight = 1;
 
-  constructor(private http: HttpClient, private sockService: SocketService) {
-    
-  }
+  //hist
+  hist_max = '0';
 
-  ngOnInit(): void {
-  }
+  constructor(private http: HttpClient, private sockService: SocketService) {}
+
+  ngOnInit(): void {}
 
   // Method to toggle the live feed on or off
   public toggleLiveFeed(): void {
@@ -114,7 +114,8 @@ export class LiveFeedComponent implements OnInit {
           this.liveFeedUrlLeft = this.apiUrl + '/video_feed';
           this.liveFeedUrlRight = this.apiUrl + '/video_feed_fluorescent';
           this.liveFeedUrlHistogram = this.apiUrl + '/get_hist';
-          this.hist_max_feed = this.apiUrl + '/stream_max'
+          this.hist_max_feed = this.apiUrl + '/stream_max';
+          this.callHistMax();
         });
       // this.sockService.get_hist().subscribe((data: string) => {
       //   this.liveFeedUrlHistogram = data;
@@ -130,7 +131,13 @@ export class LiveFeedComponent implements OnInit {
     // this.liveFeedUrlNormal = "https://cdn.wallpapersafari.com/84/92/C9qAjh.jpg";
     // this.liveFeedUrlFluorescent = "https://cdn.wallpapersafari.com/84/92/C9qAjh.jpg";
   }
-
+  public callHistMax() {
+    this.http
+      .get(this.hist_max_feed, { responseType: 'text' })
+      .subscribe((data: string) => {
+        this.hist_max = data;
+      });
+  }
   // Method to start or stop recording the live feed
   public toggleRecording(): void {
     this.isRecording = !this.isRecording;
