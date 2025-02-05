@@ -25,10 +25,6 @@ app.config['CORS_HEADERS'] = 'Content-Type'
 # Start the Flask app locally on host IP address 127.0.0.1 for testing
 # python -m flask run --host=127.0.0.1
 
-### SETTINGS FOR THE WORMSPY APPLICATION, all necessary settings besides DLC, and the framerate for the left camera can be set here
-# To use DLC, modify lines 26-31, 160, 208 and the draw_skeleton function depending on the number of nodes in the DLC model
-# If you'd like to change the fps for the left camera you can do so by changing the fps = 10 variable in line 139, make sure it matches the camera's fps
-
 # SET UP CONFIGURATION
 XYmotorport = 'COM6' # Will vary depending on the computer
 Zmotorport = 'COM3' # Will vary depending on the computer
@@ -42,6 +38,8 @@ MINIMUM_DEVICE_POSITION = 0
 ZABER_ORIENTATION_X = 1 # whether the x direction of the zaber is inverted from the video feed (-1 if they are inverted)
 ZABER_ORIENTATION_Y = -1 # whether the y direction of the zaber is inverted from the video feed (-1 if they are inverted)
 hist_frame = np.zeros((600, 960, 1), dtype=np.uint8) #change to match frame size of the right camera feed (y,x,1)
+use_avi_l = False # Set to True if you want to record the left camera as a compressed avi file, False if you want to record as uncompressed tiff files
+use_avi_r = False # Set to True if you want to record the right camera as a compressed avi file, False if you want to record as uncompressed tiff files
 
 # settings for the recording
 FPS = 10 # Brightfield value: MUST MANUALLY CHANGE :( depending on camera model you could detect it from the camera
@@ -50,10 +48,11 @@ settings = {
     "filepath": str(pathlib.Path.home() / 'WormSpy_video'),
     "filename": 'default',}
 
-# DLC Live Settings, more lines down below that need to be uncommented if using DLC
+# DLC Live Settings:
 # from dlclive import DLCLive, Processor
 # Import the DLC NN model
 # dlc_proc = Processor()
+dlc_live = None # remove this line if using DLC
 # dlc_live = DLCLive(r'C:\Users\User\Documents\WormSpy\DLC_models/3-node',
 #                    processor=dlc_proc, display=False)
 
@@ -67,8 +66,6 @@ af_enabled = False
 start_af = False
 heatmap_enabled = False
 track_algorithm = 0
-use_avi = True
-use_avi_fl = False
 is_tracking = False
 nodeIndex = 0
 mutex = Lock()
@@ -76,17 +73,15 @@ isManualEnabled = False
 leftCam = None # leave as None, will be set by the user in the UI
 rightCam = None # leave as None, will be set by the user in the UI
 frame_queue_left = queue.Queue() # Initialize the queue
-frame_queue_right = queue.Queue() # Initialize the queue for the fluorescent video feed
+frame_queue_right = queue.Queue() # Initialize the queue 
 Library.enable_device_db_store() # Initialize the device database for Zaber communication
 
 def tiff_writer(project_path, frame_queue):
-    frame_count = 0
     while True:
-        frame = frame_queue.get()
+        dt, frame = frame_queue.get()
         if frame is None:
             break
-        frame_count += 1
-        frame_name = f"frame_{frame_count}.tiff"
+        frame_name = f"frame_{dt}.tiff"
         cv2.imwrite(str(project_path / frame_name), frame)
 
 @app.route("/")
@@ -100,6 +95,8 @@ def video_feed():
     global leftCam
     # Open the video capture
     cap = EasyPySpin.VideoCapture(leftCam)
+    resolution_l = cap.get(cv2.CAP_PROP_FRAME_WIDTH), cap.get(cv2.CAP_PROP_FRAME_HEIGHT)
+    initial_coords = [(resolution_l[0]/2), resolution_l[1]/2] # INITIALIZE IN CENTER OF FRAME
     # Check if the camera is opened successfully
     if not cap.isOpened():
         print("Camera can't open\nexit")
@@ -108,12 +105,12 @@ def video_feed():
         cap.release()
     # function to generate a stream of image frames for the tracking video feed
     def gen():
-        global xMotor, yMotor, zMotor, start_recording, stop_recording, settings, is_tracking, serialPort, af_enabled, start_af, stop_stream, nodeIndex, track_algorithm, use_avi, MAXIMUM_DEVICE_XY_POSITION, MAXIMUM_DEVICE_Z_POSITION
+        global xMotor, yMotor, zMotor, start_recording, stop_recording, settings, is_tracking, serialPort, af_enabled, start_af, stop_stream, nodeIndex, track_algorithm, use_avi_l, MAXIMUM_DEVICE_XY_POSITION, MAXIMUM_DEVICE_Z_POSITION
         start_af = False
         start_recording = False
         stop_recording = False
         is_recording = False
-        factor = 2
+        factor = 2 # Downsample factor change as desired
         xPos = 0
         yPos = 0
         with Connection.open_serial_port(XYmotorport) as connection:
@@ -134,10 +131,7 @@ def video_feed():
                 MAXIMUM_DEVICE_Z_POSITION = device_Z.settings.get("limit.max")
                 firstIt = True
                 while (cap.isOpened()):
-                    # Read a frame from the video capture
-                    success, frame = cap.read()
-                    resolution = cap.get(cv2.CAP_PROP_FRAME_WIDTH), cap.get(cv2.CAP_PROP_FRAME_HEIGHT)
-                    initial_coords = [(resolution[0]/2), resolution[1]/2] # INITIALIZE IN CENTER OF FRAME
+                    success, frame = cap.read() # Read a frame from the video capture
                     calculated_worm_coords = initial_coords
                     if success:
                         if frame.dtype != np.uint8: #check if frame is 8 bit and grayscale and convert if not
@@ -145,8 +139,8 @@ def video_feed():
                         else:
                             display_frame = frame
                         if len(display_frame.shape) == 3:
-                            display_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-                        frame_downsample = cv2.resize(display_frame, (int(display_frame.shape[1] / factor), int(display_frame.shape[0] / factor)), interpolation = cv2.INTER_AREA) # Downsample the frame to 1/4 of the original size
+                            display_frame = cv2.cvtColor(display_frame, cv2.COLOR_BGR2GRAY)
+                        frame_downsample = cv2.resize(display_frame, (display_frame.shape[1] // factor, display_frame.shape[0] // factor), interpolation=cv2.INTER_AREA)
                         height, width = frame_downsample.shape
                         downsample_size = (int(height), int(width))
                         xPos = xMotor.get_position(unit=Units.LENGTH_MICROMETRES)
@@ -159,7 +153,6 @@ def video_feed():
                                 processed_frame = Thresh_Fluorescent_Marker(frame_downsample,downsample_size)
                                 worm_coords = find_worm_cms(processed_frame, factor, initial_coords)
                             elif track_algorithm == 2: ### DEEP LAB CUT TRACKING
-                                dlc_live = None # COMMENT OUT IF USING DLC
                                 poseArr = DLC_tracking(dlc_live,firstIt,frame_downsample,downsample_size, factor)
                                 posArr = poseArr[:, [0, 1]]
                                 worm_coords = (posArr[nodeIndex, 0] , posArr[nodeIndex, 1])
@@ -168,7 +161,7 @@ def video_feed():
                             if not mutex.locked():
                                 # returns microsteps
                                 x_report, y_report = trackWorm(
-                                (calculated_worm_coords[0], calculated_worm_coords[1]), xMotor, yMotor, xPos, yPos, resolution) # TRACKING FUNCTION
+                                (calculated_worm_coords[0], calculated_worm_coords[1]), xMotor, yMotor, xPos, yPos, resolution_l) # TRACKING FUNCTION, returns values for CSV dump
                         # Reinitialize file recording
                         if start_recording:
                             print("Start Left Recording")
@@ -180,10 +173,10 @@ def video_feed():
                             project_path: pathlib.Path = filepathToDirectory(settings["filepath"]) / folder_name / 'leftcam_tiffs'
                             if not project_path.exists(): 
                                 project_path.mkdir(parents=True, exist_ok=False)
-                            if use_avi:
+                            if use_avi_l:
                                 # initialize video writer
                                 fourcc = cv2.VideoWriter_fourcc(*'XVID')
-                                video_writer = cv2.VideoWriter(str(project_path / "brightfield.avi"), fourcc, FPS, (frame.shape[1], frame.shape[0]), isColor=False)
+                                video_writer_l = cv2.VideoWriter(str(project_path / "brightfield.avi"), fourcc, FPS, (resolution_l[1], resolution_l[0]), isColor=False)
                             else:
                                 # Start the writer thread
                                 writer_thread = Thread(target=tiff_writer, args=(project_path, frame_queue_left))
@@ -194,23 +187,26 @@ def video_feed():
                             writer_thread = Thread(target=tiff_writer, args=(project_path, frame_queue_left))
                             writer_thread.start()
                         if is_recording:
-                            frame = cv2.resize(frame, resolution)
-                            frame_queue_left.put(frame)  # Add frame to queue instead of writing directly
-                            dt = datetime.now(tz=timeZone).strftime("%H:%M:%S.%f")
+                            time = datetime.now(tz=timeZone)
+                            dt = time.strftime("%H-%M-%S.%f")
                             csvDump = np.append(csvDump, np.array([(dt, xPos, yPos, x_report, y_report)], dtype=dtype))
+                            if use_avi_r:
+                                video_writer_l.write(frame)
+                            else:
+                                frame_queue_left.put((dt, frame))  # Add frame to queue instead of writing directly
                         if stop_recording:
                             print("Stopped Left Recording")
-                            if use_avi:
-                                video_writer.write(frame)
+                            if use_avi_l:
+                                video_writer_l.write(display_frame)
                             else:
-                                frame.cv2.resize(frame, resolution)
+                                # frame.cv2.resize(frame, resolution)
                                 frame_queue_left.put(frame)
                         # convert recording buffer to file
                         if stop_recording:
-                            if use_avi:
-                                video_writer.release()
+                            if use_avi_l:
+                                video_writer_l.release()
                             else:
-                                frame_queue_left.put(None)
+                                frame_queue_left.put((None, None))
                                 writer_thread.join()
                             csv_file = settings["filename"] + dtstr + ".csv"
                             csv_file_path = pathlib.Path(settings["filepath"]) / folder_name / csv_file
@@ -219,8 +215,6 @@ def video_feed():
                             plot_worm_path(csv_file_path) # creates a plot of the worm path in the same directory as the csv file
                             is_recording = False
                             stop_recording = False
-                            frame_queue_left.put(None)  # Signal the writer thread to stop
-                            writer_thread.join()  # Wait for the writer thread to finish
                         # Change color to rgb from gray to allow for the coloring of circles
                         display_frame = cv2.cvtColor(display_frame, cv2.COLOR_GRAY2RGB)
                         # draw CMS position on frame as green circle
@@ -243,6 +237,7 @@ def video_feed():
 def video_feed_fluorescent():
     global rightCam, stop_stream
     cap2 = EasyPySpin.VideoCapture(rightCam)
+    resolution_r = cap2.get(cv2.CAP_PROP_FRAME_WIDTH), cap2.get(cv2.CAP_PROP_FRAME_HEIGHT)
     # Check if the camera is opened successfully
     if not cap2.isOpened():
         print("Camera can't open\nexit")
@@ -250,20 +245,17 @@ def video_feed_fluorescent():
     if stop_stream:
         cap2.release()
     def gen():
-        global heatmap_enabled, start_recording_fl, stop_recording_fl, settings, is_tracking, serialPort, hist_frame, use_avi_fl
+        global heatmap_enabled, start_recording_r, stop_recording_r, settings, is_tracking, serialPort, hist_frame, use_avi_r
         is_recording = False
         while (cap2.isOpened()):
-            # Read a frame from the video capture
             success, frame = cap2.read()
-            resolution = cap2.get(cv2.CAP_PROP_FRAME_WIDTH), cap2.get(cv2.CAP_PROP_FRAME_HEIGHT)
-            # Check if the frame was successfully read
             if success:
                 # Apply the jet color map to the frame
-                frame_8bit = cv2.normalize(frame, None, 0, 255, cv2.NORM_MINMAX, dtype=cv2.CV_8U)
+                display_frame_r = cv2.normalize(frame, None, 0, 255, cv2.NORM_MINMAX, dtype=cv2.CV_8U)
                 if heatmap_enabled == True:
-                    # Apply the jet color map to the frame
-                    frame_8bit = cv2.applyColorMap(frame_8bit, cv2.COLORMAP_JET)
-                hist_frame = copy.copy(frame_8bit)
+                    display_frame_r = cv2.applyColorMap(display_frame_r, cv2.COLORMAP_JET) # Apply the jet color map to the frame
+                hist_frame = copy.copy(display_frame_r) #histogram frame
+                max_value = np.max(frame) # max value of the frame
                 if start_recording_r:
                     print("Start Right Recording")
                     start_recording_r = False
@@ -274,29 +266,30 @@ def video_feed_fluorescent():
                     project_path: pathlib.Path = filepathToDirectory(settings["filepath"]) / folder_name / 'rightcam_tiffs'
                     if not project_path.exists(): 
                         project_path.mkdir(parents=True, exist_ok=False)
-                    if use_avi_fl:
+                    if use_avi_r:
                         fourcc = cv2.VideoWriter_fourcc(*'XVID')
-                        video_writer_fl = cv2.VideoWriter(str(project_path / "brightfield.avi"), fourcc, FPS, (frame.shape[1], frame.shape[0]), isColor=False)
+                        video_writer_r = cv2.VideoWriter(str(project_path / "brightfield.avi"), fourcc, FPS, (frame.shape[1], frame.shape[0]), isColor=False)
                     else:
                         # Start the writer thread
-                        writer_thread_fl = Thread(target=tiff_writer, args=(project_path, frame_queue_right))
-                        writer_thread_fl.start()
+                        writer_thread_r = Thread(target=tiff_writer, args=(project_path, frame_queue_right))
+                        writer_thread_r.start()
                 if is_recording:
-                    if use_avi_fl:
-                        video_writer_fl.write(frame)
+                    time = datetime.now(tz=timeZone)
+                    dt = time.strftime("%H-%M-%S.%f")
+                    if use_avi_r:
+                        video_writer_r.write(frame)
                     else:
-                        frame = cv2.resize(frame, resolution)
-                        frame_queue_right.put(frame)  # Add frame to queue instead of writing directly
-                if stop_recording_fl:
-                    print("Stopped Fluorescent Recording")
+                        frame_queue_right.put((dt, frame))  # Add frame to queue instead of writing directly
+                if stop_recording_r:
+                    print("Stopped Right Recording")
                     is_recording = False
-                    stop_recording_fl = False
-                    if use_avi_fl:
-                        video_writer_fl.release()
+                    stop_recording_r = False
+                    if use_avi_r:
+                        video_writer_r.release()
                     else:
-                        frame_queue_right.put(None)  # Signal the writer thread to stop
-                        writer_thread_fl.join()  # Wait for the writer thread to finish
-                ret, jpeg = cv2.imencode('.png', frame_8bit)
+                        frame_queue_right.put((None, None))  # Signal the writer thread to stop
+                        writer_thread_r.join()  # Wait for the writer thread to finish
+                ret, jpeg = cv2.imencode('.png', display_frame_r)
                 yield (b'--frame\r\n'
                     b'Content-Type: image/jpeg\r\n\r\n' + jpeg.tobytes() + b'\r\n')
             else:
@@ -332,7 +325,6 @@ def get_hist():
                              (bin_w * (i), hist_h - int(norm_hist[i])), (0, 255, 0), thickness=2)
                 ret, image_data = cv2.imencode('.png', histImage)
                 png = image_data.tobytes()
-                # image_data = buffer.getvalue()
                 yield (b'--frame\r\n'
                        b'Content-Type: image/jpeg\r\n\r\n' + png + b'\r\n')
             else:
@@ -408,10 +400,10 @@ def toggle_tracking():
 @cross_origin()
 @app.route("/toggle_avi", methods=['POST'])
 def toggle_avi():
-    global use_avi, use_avi_fl
-    use_avi = request.json['use_avi'] == "True"
-    use_avi_fl = request.json['use_avi_fl'] == "True"
-    return str(use_avi)+ ',' + str(use_avi_fl)
+    global use_avi_l, use_avi_r
+    use_avi_l = request.json['use_avi'] == "True"
+    use_avi_r = request.json['use_avi_fl'] == "True"
+    return str(use_avi_l)+ ',' + str(use_avi_r)
 
 @cross_origin()
 @app.route("/toggle_af", methods=['POST'])
