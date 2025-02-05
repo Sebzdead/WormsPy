@@ -162,12 +162,12 @@
           >
         </div>
         <div class="recording-settings" *ngIf="isLiveFeedEnabled">
+          <p id="hist_max">
+            {{ hist_max }}
+          </p>
           <div class="hist-feed">
             <img [src]="liveFeedUrlHistogram" alt="" id="hist" />
           </div>
-          <p id="hist_max" src="hist_max_feed">
-            
-          </p>
         </div>
       </div>
     </div>
