@@ -68,7 +68,7 @@ export class LiveFeedComponent implements OnInit {
   // leftResolution = new FormControl(1024);
 
   // right recording settings
-  folder = new FormControl('D:\\WormSpy_Video\\')
+  folder = new FormControl('D:\\WormSpy_Video\\');
   filename = new FormControl('Project_1');
   // rightFPS = new FormControl(10.0);
   // rightResolution = new FormControl(1024);
@@ -81,10 +81,13 @@ export class LiveFeedComponent implements OnInit {
   //tracking settings
   trackingAlgorithm = 0;
 
-  constructor(private http: HttpClient,
-    private sockService: SocketService) { }
+  //avi settings
+  useAvi = 1;
+  useAviFl = 0;
 
-  ngOnInit(): void { }
+  constructor(private http: HttpClient, private sockService: SocketService) {}
+
+  ngOnInit(): void {}
 
   // Method to toggle the live feed on or off
   public toggleLiveFeed(): void {
@@ -100,7 +103,7 @@ export class LiveFeedComponent implements OnInit {
       this.serialInput.disable();
       this.http
         .post(this.apiUrl + '/camera_settings', postSettings)
-        .subscribe((data) => {
+        .subscribe(() => {
           this.liveFeedUrlNormal = this.apiUrl + '/video_feed';
           this.liveFeedUrlFluorescent = this.apiUrl + '/video_feed_fluorescent';
           this.liveFeedUrlHistogram = this.apiUrl + '/get_hist';
@@ -113,10 +116,7 @@ export class LiveFeedComponent implements OnInit {
       this.liveFeedUrlNormal = '';
       this.liveFeedUrlFluorescent = '';
       this.liveFeedUrlHistogram = '';
-      this.http
-        .post(this.apiUrl + '/stop_live_stream', {})
-        .subscribe((data) => { });
-
+      this.http.post(this.apiUrl + '/stop_live_stream', {}).subscribe(() => {});
     }
 
     // this.liveFeedUrlNormal = "https://cdn.wallpapersafari.com/84/92/C9qAjh.jpg";
@@ -148,12 +148,10 @@ export class LiveFeedComponent implements OnInit {
       // Send settings to API and initiate video recording
       this.http
         .post(this.apiUrl + '/start_recording', this.recordingSettings)
-        .subscribe((data) => { });
+        .subscribe(() => {});
     } else {
       // Terminate video recording
-      this.http
-        .post(this.apiUrl + '/stop_recording', {})
-        .subscribe((data) => { });
+      this.http.post(this.apiUrl + '/stop_recording', {}).subscribe(() => {});
 
       // Renable input fields
       // this.leftFPS.enable();
@@ -178,11 +176,13 @@ export class LiveFeedComponent implements OnInit {
   public toggleHeatmap(): void {
     this.heatmapOn = !this.heatmapOn;
     if (this.heatmapOn) {
-      this.http.post(this.apiUrl + '/toggle_heatmap', { heatmap_enabled: 'True' })
-        .subscribe((data) => { });
+      this.http
+        .post(this.apiUrl + '/toggle_heatmap', { heatmap_enabled: 'True' })
+        .subscribe(() => {});
     } else {
-      this.http.post(this.apiUrl + '/toggle_heatmap', { heatmap_enabled: 'False' })
-        .subscribe((data) => { });
+      this.http
+        .post(this.apiUrl + '/toggle_heatmap', { heatmap_enabled: 'False' })
+        .subscribe(() => {});
     }
   }
   // Method to enable or disable tracking in the live feed
@@ -190,13 +190,31 @@ export class LiveFeedComponent implements OnInit {
     this.isTrackingEnabled = !this.isTrackingEnabled;
     if (this.isTrackingEnabled) {
       this.http
-        .post(this.apiUrl + '/toggle_tracking', { is_tracking: 'True', tracking_algorithm: this.trackingAlgorithm })
-        .subscribe((data) => { });
+        .post(this.apiUrl + '/toggle_tracking', {
+          is_tracking: 'True',
+          tracking_algorithm: this.trackingAlgorithm,
+        })
+        .subscribe(() => {});
     } else {
       this.http
-        .post(this.apiUrl + '/toggle_tracking', { is_tracking: 'False', tracking_algorithm: this.trackingAlgorithm })
-        .subscribe((data) => { });
+        .post(this.apiUrl + '/toggle_tracking', {
+          is_tracking: 'False',
+          tracking_algorithm: this.trackingAlgorithm,
+        })
+        .subscribe(() => {});
     }
+  }
+
+  public toggleAvi(): void {
+    const avi_bool = this.useAvi == 0 ? 'False' : 'True';
+    const avi_fl_bool = this.useAviFl == 0 ? 'False' : 'True';
+
+    this.http
+      .post(this.apiUrl + '/toggle_avi', {
+        use_avi: avi_bool,
+        use_avi_fl: avi_fl_bool,
+      })
+      .subscribe(() => {});
   }
 
   // Method to enable or disable tracking in the live feed
@@ -214,7 +232,7 @@ export class LiveFeedComponent implements OnInit {
         }
         this.http
           .post(this.apiUrl + '/node_index', { index: index })
-          .subscribe((data) => { });
+          .subscribe(() => {});
       }
     }
   }
@@ -224,11 +242,11 @@ export class LiveFeedComponent implements OnInit {
     if (this.isAutofocusEnabled) {
       this.http
         .post(this.apiUrl + '/toggle_af', { af_enabled: 'True' })
-        .subscribe((data) => { });
+        .subscribe(() => {});
     } else {
       this.http
         .post(this.apiUrl + '/toggle_af', { af_enabled: 'False' })
-        .subscribe((data) => { });
+        .subscribe(() => {});
     }
     this.isAutofocusEnabled = !this.isAutofocusEnabled;
   }
@@ -236,17 +254,18 @@ export class LiveFeedComponent implements OnInit {
   public toggleManualMode(): void {
     this.manualEnabled = !this.manualEnabled;
     if (this.manualEnabled) {
-      this.http.post(this.apiUrl + '/toggle_manual', { toggle_manual: 'True' })
-        .subscribe((data) => { });
+      this.http
+        .post(this.apiUrl + '/toggle_manual', { toggle_manual: 'True' })
+        .subscribe(() => {});
     } else {
-      this.http.post(this.apiUrl + '/toggle_manual', { toggle_manual: 'False' })
-        .subscribe((data) => { });
+      this.http
+        .post(this.apiUrl + '/toggle_manual', { toggle_manual: 'False' })
+        .subscribe(() => {});
     }
   }
 
   public moveToCenter(): void {
-    this.http.post(this.apiUrl + '/move_to_center', {})
-      .subscribe((data) => {});
+    this.http.post(this.apiUrl + '/move_to_center', {}).subscribe(() => {});
   }
 
   // selectDirectoryLeft(files: any) {
