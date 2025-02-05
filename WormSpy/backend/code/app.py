@@ -46,7 +46,8 @@ FPS = 10 # Brightfield value: MUST MANUALLY CHANGE :( depending on camera model 
 timeZone = pytz.timezone("US/Eastern")
 settings = {
     "filepath": str(pathlib.Path.home() / 'WormSpy_video'),
-    "filename": 'default',}
+    "filename": 'default',
+}
 
 # DLC Live Settings:
 # from dlclive import DLCLive, Processor

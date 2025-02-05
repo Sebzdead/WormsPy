@@ -29,8 +29,8 @@ export class LiveFeedComponent implements OnInit {
   public apiUrl: string = 'http://127.0.0.1:5000';
 
   // the current image from the live feed
-  public liveFeedUrlNormal!: string;
-  public liveFeedUrlFluorescent!: string;
+  public liveFeedUrlLeft!: string;
+  public liveFeedUrlRight!: string;
 
   // the current histogram from the live feed flourescent
   public liveFeedUrlHistogram!: string;
@@ -43,6 +43,8 @@ export class LiveFeedComponent implements OnInit {
   private recordingSettings = {
     filepath: 'D:\\WormSpy_video\\',
     filename: 'Tracking_Video',
+    use_avi_left: 0,
+    use_avi_right: 0
     // resolution: 256,
     // fps: 10.0,
     // filepath_fl: 'D:\\WormSpy_video\\Calcium',
@@ -82,12 +84,15 @@ export class LiveFeedComponent implements OnInit {
   trackingAlgorithm = 0;
 
   //avi settings
-  useAvi = 1;
-  useAviFl = 0;
+  useAviLeft = 1;
+  useAviRight = 1;
 
-  constructor(private http: HttpClient, private sockService: SocketService) {}
+  constructor(private http: HttpClient, private sockService: SocketService) {
+    
+  }
 
-  ngOnInit(): void {}
+  ngOnInit(): void {
+  }
 
   // Method to toggle the live feed on or off
   public toggleLiveFeed(): void {
@@ -104,8 +109,8 @@ export class LiveFeedComponent implements OnInit {
       this.http
         .post(this.apiUrl + '/camera_settings', postSettings)
         .subscribe(() => {
-          this.liveFeedUrlNormal = this.apiUrl + '/video_feed';
-          this.liveFeedUrlFluorescent = this.apiUrl + '/video_feed_fluorescent';
+          this.liveFeedUrlLeft = this.apiUrl + '/video_feed';
+          this.liveFeedUrlRight = this.apiUrl + '/video_feed_fluorescent';
           this.liveFeedUrlHistogram = this.apiUrl + '/get_hist';
         });
       // this.sockService.get_hist().subscribe((data: string) => {
@@ -113,8 +118,8 @@ export class LiveFeedComponent implements OnInit {
       // });
     } else {
       this.serialInput.enable();
-      this.liveFeedUrlNormal = '';
-      this.liveFeedUrlFluorescent = '';
+      this.liveFeedUrlLeft = '';
+      this.liveFeedUrlRight = '';
       this.liveFeedUrlHistogram = '';
       this.http.post(this.apiUrl + '/stop_live_stream', {}).subscribe(() => {});
     }
@@ -142,6 +147,8 @@ export class LiveFeedComponent implements OnInit {
       // this.recordingSettings.resolution = this.leftResolution.value;
       this.recordingSettings.filepath = this.folder.value;
       this.recordingSettings.filename = this.filename.value;
+      this.recordingSettings.use_avi_left = this.useAviLeft;
+      this.recordingSettings.use_avi_right = this.useAviRight;
       // this.recordingSettings.fps_fl = this.rightFPS.value;
       // this.recordingSettings.resolution_fl = this.rightResolution.value;
 
@@ -203,18 +210,6 @@ export class LiveFeedComponent implements OnInit {
         })
         .subscribe(() => {});
     }
-  }
-
-  public toggleAvi(): void {
-    const avi_bool = this.useAvi == 0 ? 'False' : 'True';
-    const avi_fl_bool = this.useAviFl == 0 ? 'False' : 'True';
-
-    this.http
-      .post(this.apiUrl + '/toggle_avi', {
-        use_avi: avi_bool,
-        use_avi_fl: avi_fl_bool,
-      })
-      .subscribe(() => {});
   }
 
   // Method to enable or disable tracking in the live feed
