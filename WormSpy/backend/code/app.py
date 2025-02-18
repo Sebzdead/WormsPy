@@ -1,10 +1,12 @@
 import cv2
 import math
+import time
 import copy
 import pytz
 import queue
 import pygame
 import pathlib
+import threading
 import EasyPySpin
 import numpy as np
 from datetime import datetime
@@ -48,11 +50,9 @@ settings = {
     "filepath": str(pathlib.Path.home() / 'WormSpy_video'),
     "filename": 'default',
 }
-
 # DLC Live Settings:
 # from dlclive import DLCLive, Processor
-# Import the DLC NN model
-# dlc_proc = Processor()
+# dlc_proc = Processor() # Import the DLC NN model
 dlc_live = None # remove this line if using DLC
 # dlc_live = DLCLive(r'C:\Users\User\Documents\WormSpy\DLC_models/3-node',
 #                    processor=dlc_proc, display=False)
@@ -107,7 +107,7 @@ def video_feed():
         cap.release()
     # function to generate a stream of image frames for the tracking video feed
     def gen():
-        global xMotor, yMotor, zMotor, start_recording, stop_recording, settings, is_tracking, serialPort, af_enabled, start_af, stop_stream, nodeIndex, track_algorithm, use_avi_l, MAXIMUM_DEVICE_XY_POSITION, MAXIMUM_DEVICE_Z_POSITION
+        global xMotor, yMotor, zMotor, start_recording, stop_recording, settings, is_tracking, serialPort, start_af, stop_stream, nodeIndex, track_algorithm, use_avi_l, MAXIMUM_DEVICE_XY_POSITION, MAXIMUM_DEVICE_Z_POSITION
         start_af = False
         start_recording = False
         stop_recording = False
@@ -236,12 +236,11 @@ def video_feed_fluorescent():
     if stop_stream:
         cap2.release()
     def gen():
-        global heatmap_enabled, start_recording_r, stop_recording_r, settings, is_tracking, serialPort, hist_frame, use_avi_r, hist_max
+        global heatmap_enabled, start_recording_r, stop_recording_r, settings, is_tracking, serialPort, hist_frame, use_avi_r, hist_max, latest_frame
         is_recording = False
         while (cap2.isOpened()):
             success, frame = cap2.read()
             if success:
-                # Apply the jet color map to the frame
                 if frame.dtype != np.uint8: #check if frame is 8 bit and grayscale and convert if not
                     display_frame_r = cv2.normalize(frame, None, 0, 255, cv2.NORM_MINMAX, dtype=cv2.CV_8U)
                 else:
@@ -250,10 +249,11 @@ def video_feed_fluorescent():
                     record_frame_r = cv2.cvtColor(display_frame_r, cv2.COLOR_BGR2GRAY)
                 else:
                     record_frame_r = display_frame_r
-                if heatmap_enabled == True:
+                if heatmap_enabled == True: # Apply the jet color map to the frame
                     display_frame_r = cv2.applyColorMap(display_frame_r, cv2.COLORMAP_JET) # Apply the jet color map to the frame
                 hist_frame = copy.copy(display_frame_r) #histogram frame
                 hist_max = np.max(frame) # max value of the frame
+                latest_frame = display_frame_r.copy()
                 if start_recording_r:
                     print("Start Right Recording")
                     start_recording_r = False
@@ -340,10 +340,9 @@ def stream_max():
         yield str(hist_max)
     return Response(gen(), mimetype='text/plain')
 
-
 @cross_origin()
 @app.route("/start_recording", methods=['POST'])
-def start_recording():
+def start_record():
     global start_recording, start_recording_r, settings, use_avi_l, use_avi_r
     # Update the settings with the data from the request body
     settings["filepath"] = request.json["filepath"]
@@ -358,7 +357,7 @@ def start_recording():
 
 @cross_origin()
 @app.route("/stop_recording", methods=['POST'])
-def stop_recording():
+def stop_record():
     global stop_recording, stop_recording_r
     # Stop the recording of both video feeds
     stop_recording = True
@@ -409,9 +408,12 @@ def toggle_tracking():
 @cross_origin()
 @app.route("/toggle_af", methods=['POST'])
 def toggle_af():
-    global af_enabled, start_af
-    af_enabled = request.json['af_enabled'] == "True"
-    start_af = af_enabled
+    global af_enabled
+    af_request = request.json['af_enabled'] == "True"
+    if af_request and not af_enabled:
+        start_autofocus()
+    elif not af_request and af_enabled:
+        stop_autofocus()
     return str(af_enabled)
 
 @cross_origin()
@@ -437,6 +439,85 @@ def move_to_center():
     xMotor.move_absolute(midX, unit=Units.NATIVE, wait_until_idle=False)
     yMotor.move_absolute(midY, unit=Units.NATIVE, wait_until_idle=False)
     return jsonify({"message": "Moved to center"})
+
+def calculate_focus_metric(frame):
+    """
+    Calculate a focus metric using the variance of the Laplacian.
+    A higher variance indicates a sharper image.
+    """
+    laplacian = cv2.Laplacian(frame, cv2.CV_64F)
+    return laplacian.var()
+
+class PIDController:
+    def __init__(self, kp, ki, kd, setpoint):
+        self.kp = kp
+        self.ki = ki
+        self.kd = kd
+        self.setpoint = setpoint
+        self.integral = 0.0
+        self.prev_error = 0.0
+
+    def compute(self, measurement, dt):
+        error = self.setpoint - measurement
+        self.integral += error * dt
+        derivative = (error - self.prev_error) / dt if dt > 0 else 0.0
+        output = self.kp * error + self.ki * self.integral + self.kd * derivative
+        self.prev_error = error
+        return output
+
+def continuous_autofocus(optimal_z, optimal_focus_metric, frame_interval=0.2):
+    """
+    Continuously adjusts the zMotor based on the focus metric from the latest frame.
+    Updates at most 5 times per second.
+    """
+    global af_enabled, zMotor, latest_frame
+    pid = PIDController(kp=0.001, ki=0, kd=0.001, setpoint=optimal_focus_metric)
+    current_z = optimal_z
+    while af_enabled:
+        start_time = time.time()
+        if latest_frame is None:
+            time.sleep(frame_interval)
+            continue
+        metric = calculate_focus_metric(latest_frame)
+        adjustment = pid.compute(metric, frame_interval)
+        max_step = 20  # Maximum z movement per iteration (adjust as needed)
+        adjustment = max(-max_step, min(max_step, adjustment))
+        new_z = current_z + adjustment
+        print("Focus metric:", metric, "Adjustment:", adjustment, "New z:", new_z)
+        try:
+            zMotor.move_absolute(new_z, unit=Units.NATIVE, wait_until_idle=True)
+        except Exception as e:
+            print("Autofocus: Error moving zMotor:", e)
+        current_z = new_z
+        elapsed = time.time() - start_time
+        if elapsed < frame_interval:
+            time.sleep(frame_interval - elapsed)
+    print("Autofocus stopped.")
+
+def start_autofocus():
+    """
+    Initializes autofocus by capturing the current frame and zMotor position,
+    then starting the continuous autofocus loop in a daemon thread.
+    """
+    global af_enabled, zMotor, latest_frame, af_thread
+    if latest_frame is None:
+        print("No frame available to initialize autofocus.")
+        return
+    optimal_z = zMotor.get_position(unit=Units.NATIVE)
+    optimal_focus_metric = calculate_focus_metric(latest_frame)
+    print("Autofocus started with optimal_z =", optimal_z, "and optimal_focus_metric =", optimal_focus_metric)
+    af_enabled = True
+    af_thread = threading.Thread(target=continuous_autofocus, args=(optimal_z, optimal_focus_metric))
+    af_thread.daemon = True
+    af_thread.start()
+
+def stop_autofocus():
+    """
+    Stops the continuous autofocus.
+    """
+    global af_enabled
+    af_enabled = False
+    print("Stopping autofocus...")
 
 def smoothing(worm_coords, previous_worm_coords): # exponential smoothing function. Alpha determines how much smoothing is desirable.
     alpha = 0.7
