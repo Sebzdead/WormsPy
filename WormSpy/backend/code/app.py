@@ -143,8 +143,6 @@ def video_feed():
                         if len(display_frame_l.shape) == 3:
                             display_frame_l = cv2.cvtColor(display_frame_l, cv2.COLOR_BGR2GRAY)
                         frame_downsample = cv2.resize(display_frame_l, (display_frame_l.shape[1] // factor, display_frame_l.shape[0] // factor), interpolation=cv2.INTER_AREA)
-                        height, width = frame_downsample.shape
-                        downsample_size = (int(height), int(width))
                         xPos = xMotor.get_position(unit=Units.LENGTH_MICROMETRES)
                         yPos = yMotor.get_position(unit=Units.LENGTH_MICROMETRES)
                         if is_tracking: ### BUTTON HAS BEEN PRESSED
@@ -152,9 +150,11 @@ def video_feed():
                                 processed_frame = Thresh_Light_Background(frame_downsample)
                                 worm_coords = find_worm_cms(processed_frame, factor, initial_coords)
                             elif track_algorithm == 1: ### FLUORESCENT THRESHOLDING
-                                processed_frame = Thresh_Fluorescent_Marker(frame_downsample,downsample_size)
+                                processed_frame = Thresh_Fluorescent_Marker(frame_downsample)
                                 worm_coords = find_worm_cms(processed_frame, factor, initial_coords)
                             elif track_algorithm == 2: ### DEEP LAB CUT TRACKING
+                                height, width = frame_downsample.shape
+                                downsample_size = (int(height), int(width))
                                 poseArr = DLC_tracking(dlc_live,firstIt,frame_downsample,downsample_size, factor)
                                 posArr = poseArr[:, [0, 1]]
                                 worm_coords = (posArr[nodeIndex, 0] , posArr[nodeIndex, 1])
@@ -570,7 +570,7 @@ def Thresh_Light_Background(frame):
     processed_frame = cv2.dilate(eroded_image, kernel, iterations=1)
     return processed_frame
 
-def Thresh_Fluorescent_Marker(frame, new_size):
+def Thresh_Fluorescent_Marker(frame):
     inv_gamma = 1.5
     table = np.array([((i / 255.0) ** inv_gamma) * 255 for i in np.arange(0, 256)]).astype("uint8")
     gamma = cv2.LUT(frame, table)
