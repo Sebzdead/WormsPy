@@ -39,7 +39,7 @@ MAXIMUM_DEVICE_Z_POSITION = 209974 # may vary if using different motors
 MINIMUM_DEVICE_POSITION = 0
 ZABER_ORIENTATION_X = 1 # whether the x direction of the zaber is inverted from the video feed (-1 if they are inverted)
 ZABER_ORIENTATION_Y = -1 # whether the y direction of the zaber is inverted from the video feed (-1 if they are inverted)
-hist_frame = np.zeros((600, 960, 1), dtype=np.uint8) #change to match frame size of the right camera feed (y,x,1)
+hist_frame = np.zeros((1200, 1920, 1), dtype=np.uint8) #change to match frame size of the right camera feed (y,x,1)
 use_avi_l = False # Set to True if you want to record the left camera as a compressed avi file, False if you want to record as uncompressed tiff files
 use_avi_r = False # Set to True if you want to record the right camera as a compressed avi file, False if you want to record as uncompressed tiff files
 
@@ -200,7 +200,7 @@ def video_feed():
                             else:
                                 frame_queue_left.put((None, None))
                                 writer_thread_l.join()
-                            csv_file = settings["filename"] + dtstr + ".csv"
+                            csv_file = settings["filename"] + ".csv"
                             csv_file_path = pathlib.Path(settings["filepath"]) / folder_name / csv_file
                             header = "timestamp,X_position,Y_position"  # Add header
                             np.savetxt(str(csv_file_path), csvDump, delimiter=",", header=header, comments="", fmt='%s,%f,%f')
@@ -302,7 +302,7 @@ def video_feed_fluorescent():
 def get_hist():
     def gen():
         global hist_frame
-        current_frame = np.zeros((600, 960, 1), dtype=np.uint8)
+        current_frame = np.zeros((1200, 1920, 1), dtype=np.uint8)
         first = True
         while True: 
             if first:

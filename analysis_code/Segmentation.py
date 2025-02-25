@@ -5,11 +5,11 @@ import cv2
 import csv
 import imageio
 from PIL import Image
-threshold = 7
-subtraction = -3
-directory = "ASH1_19-02-2025_17-11" # directory of the WormsPy output folder
-name = "ASH_GCaMP" # desired name
-segmented_csv_path = os.path.join(directory, name + '_segmented.csv') #input file
+threshold = 5 # decrease this number for more selective thresholding
+subtraction = -3 # decrease this number (more negative) for more selective thresholding
+directory = "D:\WormSpy_video\ASH_GlycerolFeb25"
+name = "worm4R"
+segmented_csv_path = os.path.join(directory, name + '.csv') #input file
 
 def find_largest_area_and_brightest_pixels(raw, eightbit, prev_centroid=None, distance_threshold=20):
 
@@ -20,8 +20,8 @@ def find_largest_area_and_brightest_pixels(raw, eightbit, prev_centroid=None, di
         255,
         cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
         cv2.THRESH_BINARY,
-        threshold, # increase this number for less selective thresholding
-        subtraction) # decrease this number (more negative) for more selective thresholding
+        threshold, 
+        subtraction) 
 
     # Morphological operations
     kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
@@ -32,8 +32,8 @@ def find_largest_area_and_brightest_pixels(raw, eightbit, prev_centroid=None, di
     contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
 
     # Filter contours by area
-    min_area = 1
-    max_area = 40
+    min_area = 4
+    max_area = 100
     valid_contours = [cnt for cnt in contours if min_area <= cv2.contourArea(cnt) <= max_area]
 
     # Copy the eightbit image for display
@@ -73,11 +73,6 @@ def find_largest_area_and_brightest_pixels(raw, eightbit, prev_centroid=None, di
 
             # Create a mask with a filled circle at the centroid
             cv2.circle(mask, centroid, 10, (255), thickness=-1)
-        # else:
-        #     print("Moment m00 is zero, cannot compute centroid.")
-    # else:
-    #     print("No contours found.")
-        # Optionally, assign a default centroid or handle accordingly
 
     # Display the image with the circle
     cv2.imshow("Thresholded Image", output_color)
@@ -138,23 +133,15 @@ if __name__ == "__main__":
 
         frame_number = 0
         prev_cent = None
-        tot_min = 0
-        tot_max = 0
-        for i, frame in enumerate(stack):
-            #find the min and max pixel values in the frame
-            curr_min = np.min(frame)
-            curr_max = np.max(frame)
-            tot_min = min(tot_min, curr_min)
-            tot_max = max(tot_max, curr_max)
-            
         # Loop through each image in the stack
         for i, frame in enumerate(stack):
             # Convert to gray, median filter, threshold
             raw = frame
-            
+            curr_min = np.min(frame)
+            curr_max = np.max(frame)
             # clipped = np.clip(frame, tot_min, tot_max)
-            clipped = np.clip(frame, tot_min, tot_max)
-            eightbit = ((clipped - tot_min) / (tot_max - tot_min)) * 255
+            clipped = np.clip(frame, curr_min, curr_max)
+            eightbit = ((clipped - curr_min) / (curr_max - curr_min)) * 255
             eightbit = eightbit.astype(np.uint8)
             adjusted = CLAHE(eightbit)
             # eightbit = adaptive_histogram_equalization(frame)
@@ -180,7 +167,7 @@ if __name__ == "__main__":
             output_path,
             frames_resized,
             format='GIF',
-            fps=10,                 # Lower frames per second
+            duration=100,                 # 100uS per frame
             palettesize=64,         # Reduce color palette to 64 colors
             subrectangles=True      # Enable subrectangle optimization
         )

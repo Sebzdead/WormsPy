@@ -30,12 +30,12 @@ def tiff_stacker(dir_path, output_path):
 
     print(f"Multi-image TIFF stack saved at {output_path}")
 
-input_dir = r"D:\WormSpy_video\ASH1_19-02-2025_17-11"
-output_dir = r"D:\WormSpy_video\ASH1_19-02-2025_17-11"
+input_dir = r"D:\WormSpy_video\ASH_glyc_4_25-02-2025_13-48"
+output_dir = r"D:\WormSpy_video\ASH_GlycerolFeb25"
 for foldername in os.listdir(input_dir):
     input_path = os.path.join(input_dir, foldername)
     if os.path.isdir(input_path):  # Ensure input_path is a directory
-        output_path = os.path.join(output_dir, 'BLUE_5_.tiff')
+        output_path = os.path.join(output_dir, f'{foldername}_4.tiff')
         tiff_stacker(input_path, output_path)
     else:
         print(f"{input_path} is not a directory")
