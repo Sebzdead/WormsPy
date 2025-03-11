@@ -5,11 +5,12 @@ import cv2
 import csv
 import imageio
 from PIL import Image
-threshold = 5 # decrease this number for more selective thresholding
+threshold = 7 # decrease this number for more selective thresholding
 subtraction = -3 # decrease this number (more negative) for more selective thresholding
 directory = "D:\WormSpy_video\ASH_GlycerolFeb25"
-name = "worm4R"
-segmented_csv_path = os.path.join(directory, name + '.csv') #input file
+name = "worm4G"
+output_directory = ''
+segmented_csv_path = os.path.join(directory, name + '.csv')
 
 def find_largest_area_and_brightest_pixels(raw, eightbit, prev_centroid=None, distance_threshold=20):
 
@@ -33,7 +34,7 @@ def find_largest_area_and_brightest_pixels(raw, eightbit, prev_centroid=None, di
 
     # Filter contours by area
     min_area = 4
-    max_area = 100
+    max_area = 200
     valid_contours = [cnt for cnt in contours if min_area <= cv2.contourArea(cnt) <= max_area]
 
     # Copy the eightbit image for display

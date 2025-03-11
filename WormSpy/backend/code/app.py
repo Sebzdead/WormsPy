@@ -172,16 +172,19 @@ def video_feed():
                             dt = datetime.now(tz=timeZone)
                             dtstr = dt.strftime("%d-%m-%Y_%H-%M")
                             folder_name = settings["filename"] + '_' + dtstr
-                            project_path: pathlib.Path = filepathToDirectory(settings["filepath"]) / folder_name / 'leftcam_tiffs'
-                            if not project_path.exists(): 
-                                project_path.mkdir(parents=True, exist_ok=False)
                             if use_avi_l:
                                 # initialize video writer
                                 fourcc_l = cv2.VideoWriter_fourcc(*'XVID')
-                                video_writer_l = cv2.VideoWriter(str(project_path / "brightfield.avi"), fourcc_l, FPS, (display_frame_l.shape[1], display_frame_l.shape[0]), isColor=False)
+                                parent_path: pathlib.Path = filepathToDirectory(settings["filepath"]) / folder_name
+                                if not parent_path.exists(): 
+                                    parent_path.mkdir(parents=True, exist_ok=False)
+                                video_writer_l = cv2.VideoWriter(str(parent_path / (folder_name + "_L.avi")), fourcc_l, FPS, (display_frame_l.shape[1], display_frame_l.shape[0]), isColor=False)
                             else:
+                                tiff_folder: pathlib.Path = filepathToDirectory(settings["filepath"]) / folder_name / 'leftcam_tiffs'
+                                if not tiff_folder.exists(): 
+                                    tiff_folder.mkdir(parents=True, exist_ok=False)
                                 # Start the writer thread
-                                writer_thread_l = Thread(target=tiff_writer, args=(project_path, frame_queue_left))
+                                writer_thread_l = Thread(target=tiff_writer, args=(tiff_folder, frame_queue_left))
                                 writer_thread_l.start()
                             dtype = [('timestamp', 'U26'), ('X_position', 'f8'), ('Y_position', 'f8')]
                             csvDump = np.zeros(0, dtype=dtype)
@@ -261,15 +264,18 @@ def video_feed_fluorescent():
                     dt = datetime.now(tz=timeZone)
                     dtstr = dt.strftime("%d-%m-%Y_%H-%M")
                     folder_name = settings["filename"] + '_' + dtstr
-                    project_path: pathlib.Path = filepathToDirectory(settings["filepath"]) / folder_name / 'rightcam_tiffs'
-                    if not project_path.exists(): 
-                        project_path.mkdir(parents=True, exist_ok=False)
                     if use_avi_r:
                         fourcc_r = cv2.VideoWriter_fourcc(*'XVID')
-                        video_writer_r = cv2.VideoWriter(str(project_path / "brightfield.avi"), fourcc_r, FPS, (record_frame_r.shape[1], record_frame_r.shape[0]), isColor=False)
+                        parent_path: pathlib.Path = filepathToDirectory(settings["filepath"]) / folder_name
+                        if not parent_path.exists(): 
+                            parent_path.mkdir(parents=True, exist_ok=False)
+                        video_writer_r = cv2.VideoWriter(str(parent_path / (folder_name + "_R.avi")), fourcc_r, FPS, (record_frame_r.shape[1], record_frame_r.shape[0]), isColor=False)
                     else:
+                        tiff_folder: pathlib.Path = filepathToDirectory(settings["filepath"]) / folder_name / 'rightcam_tiffs'
+                        if not tiff_folder.exists(): 
+                            tiff_folder.mkdir(parents=True, exist_ok=False)
                         # Start the writer thread
-                        writer_thread_r = Thread(target=tiff_writer, args=(project_path, frame_queue_right))
+                        writer_thread_r = Thread(target=tiff_writer, args=(tiff_folder, frame_queue_right))
                         writer_thread_r.start()
                 if is_recording:
                     time = datetime.now(tz=timeZone)
