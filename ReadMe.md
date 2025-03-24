@@ -27,7 +27,7 @@ The basic design of WormsPy includes:
 See the demonstration video here: https://youtu.be/mhyYDpziSE8
 
 ## Building the WormsPy imaging platform:
-For a full build guide please see our publication: (FORTHCOMING)
+For a full build guide please see our publication: https://www.biorxiv.org/content/10.1101/2025.03.21.644605v1
 
 ### Minimum requirements:
 Minimum requirements to use WormSpy:
