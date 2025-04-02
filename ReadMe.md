@@ -51,28 +51,42 @@ Minimum requirements to use WormSpy:
 10. Set up your motor connections using ZaberLauncher, note down COM port # for your motors and maximum position index
 11. Open the file `WormsPy/backend/code/app.py` and adjust COM ports as well as other settings as needed
 12. Adjust your camera settings as desired using the camera's native software (SpinView for Teledyne cameras)
-13. Double click StartWormsPy.bat
-14. In your browser visit `localhost:5000`
-15. Enjoy WormsPy!
+13. Choose one of the following interfaces:
+   - **Web Interface**: Double click `StartWormsPy.bat` and visit `localhost:5000` in your browser
+   - **PyQt5 Interface**: Double click `StartWormsPyQt.bat` for a native desktop application
+14. Enjoy WormsPy!
 
 ## Developer's Notes:
 More information for those interested in adapting WormSpy for their use case.
 
-### Frontend:
-The frontend of WormsPy was developed using Angular (HTML/SCSS/TS). To make adjustments the frontend, the installation of NodeJs is required. Run `npm install` in the `wormspy` folder after initially downloading the files. Adjustments to the frontend can be made in the live-feed component found in `wormspy/src/app/live-feed`. 
+### User Interfaces:
+WormsPy now supports two different user interfaces:
 
-To continue using flask as a web server and maintain `StartWormSpy.bat` as an easy launch option, follow these steps:
+1. **Web Interface (Original)**: Built with Angular (HTML/SCSS/TS) and served through Flask. This is the original interface that runs in a web browser.
+
+2. **Desktop Interface (New)**: Built with PyQt5, providing a native desktop experience with a dark theme and resizable video feeds. The PyQt5 interface uses the same Flask backend for all functionality but presents it in a more ergonomic desktop application.
+
+### Angular Frontend:
+To make adjustments to the Angular frontend, the installation of NodeJs is required. Run `npm install` in the `wormspy` folder after initially downloading the files. Adjustments to the frontend can be made in the live-feed component found in `wormspy/src/app/live-feed`. 
+
+To continue using Flask as a web server and maintain `StartWormSpy.bat` as an easy launch option, follow these steps:
 1. Use `ng build --configuration production --deploy-url static/` to create new production files in the `wormspy/dist` folder. 
 2. Place the `index.html` file into the `production/template` folder. 
 3. Place all other files found in the dist folder into the `production/static` folder. Ignore assets unless those have been updated.
-<!-- 4. In the `index.html` file, edit all import statements following this template: `<src>/<href>="{{url_for('static', filename='<filename>.js')}}"` -->
+
+### PyQt5 Frontend:
+The PyQt5 interface is contained in `WormSpy/backend/code/wormspy_pyqt.py`. This is a single file application that:
+- Provides a dark-themed native desktop interface
+- Features dynamically resizable video feeds for better visualization
+- Includes the same functionality as the web interface
+- Uses a more intuitive layout for controls and settings
 
 ### Backend:
-WormSpy uses a Python Flask web server (`app.py`) to communicate with the frontend. A combination of the OpenCV and EasyPySpin libraries are used to communicate with the cameras. The Zaber Motion **ASCII** library is used to control the Zaber motors via the Zaber_messenger_router(), which is why the Zaberlauncher application must be open for WormsPy to work. There is an optional DeepLabCut (DLC) Live tracking option available. To activate, uncomment the code that loads in the pretrained model in lines #87-92. 
+WormSpy uses a Python Flask web server (`app.py`) to communicate with both frontends. A combination of the OpenCV and EasyPySpin libraries are used to communicate with the cameras. The Zaber Motion **ASCII** library is used to control the Zaber motors via the Zaber_messenger_router(), which is why the Zaberlauncher application must be open for WormsPy to work. There is an optional DeepLabCut (DLC) Live tracking option available. To activate, uncomment the code that loads in the pretrained model in lines #87-92. 
 
 If you would like to train and use your own DLC model, place your model in the `DLC_models` folder and replace the `skeleton` folder in the `DLCLive` function of the `video_feed` method.
 
-For more detailed programmatical information about WormSpy, refer to the inline comments found in `app.py`.  
+For more detailed programmatical information about WormSpy, refer to the inline comments found in `app.py`.
 
 ## License:
 WormSpy was developed by Sebastian Wittekindt and Lennard Wittekindt at McGill University. Funded by the Canadian Institute for Health Research.
