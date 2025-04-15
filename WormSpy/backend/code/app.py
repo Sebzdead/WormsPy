@@ -10,6 +10,7 @@ import threading
 import EasyPySpin
 import numpy as np
 from datetime import datetime
+from pathlib import Path
 from threading import Lock, Thread
 from zaber_motion import Library, Units
 from plot_worm_path import plot_worm_path
@@ -17,9 +18,10 @@ from flask_cors import CORS, cross_origin
 from skimage.filters import threshold_yen
 from skimage.measure import label, regionprops
 from zaber_motion.ascii import Connection, Device
-from flask import Flask, Response, jsonify, render_template, request
+from flask import Flask, Response, jsonify, render_template, request, send_from_directory
 
 app = Flask(__name__, template_folder='production\\templates',
+            static_url_path='/static',
             static_folder='production\\static')
 CORS(app, origins=['http://localhost:4200', 'http://localhost:5000'])
 app.config['CORS_HEADERS'] = 'Content-Type'
@@ -40,8 +42,6 @@ MINIMUM_DEVICE_POSITION = 0
 ZABER_ORIENTATION_X = 1 # whether the x direction of the zaber is inverted from the video feed (-1 if they are inverted)
 ZABER_ORIENTATION_Y = -1 # whether the y direction of the zaber is inverted from the video feed (-1 if they are inverted)
 hist_frame = np.zeros((1200, 1920, 1), dtype=np.uint8) #change to match frame size of the right camera feed (y,x,1)
-use_avi_l = False # Set to True if you want to record the left camera as a compressed avi file, False if you want to record as uncompressed tiff files
-use_avi_r = False # Set to True if you want to record the right camera as a compressed avi file, False if you want to record as uncompressed tiff files
 
 # settings for the recording
 FPS = 10 # Brightfield value: MUST MANUALLY CHANGE :( depending on camera model you could detect it from the camera
@@ -49,7 +49,10 @@ timeZone = pytz.timezone("US/Eastern")
 settings = {
     "filepath": str(pathlib.Path.home() / 'WormSpy_video'),
     "filename": 'default',
+    "use_avi_l": True, # Set to True if you want to record the left camera as a compressed avi file, False if you want to record as uncompressed tiff files
+    "use_avi_r": True, # Set to True if you want to record the right camera as a compressed avi file, False if you want to record as uncompressed tiff files
 }
+
 # DLC Live Settings:
 # from dlclive import DLCLive, Processor
 # dlc_proc = Processor() # Import the DLC NN model
@@ -59,6 +62,7 @@ dlc_live = None # remove this line if using DLC
 
 # Global Variables (leave alone)
 stop_stream = False
+is_recording = False
 start_recording = False
 stop_recording = False
 start_recording_r = False
@@ -86,9 +90,13 @@ def tiff_writer(project_path, frame_queue):
         frame_name = f"frame_{dt}.tiff"
         cv2.imwrite(str(project_path / frame_name), frame)
 
-@app.route("/")
+# Add route to serve Angular app
+@app.route('/', defaults={'path': ''})
+@app.route('/<path:path>')
 @cross_origin()
-def home():
+def serve_angular(path):
+    if path and Path(app.static_folder + '/' + path).exists():
+        return send_from_directory(app.static_folder, path)
     return render_template('index.html')
 
 @cross_origin()
@@ -107,7 +115,7 @@ def video_feed():
         cap.release()
     # function to generate a stream of image frames for the tracking video feed
     def gen():
-        global xMotor, yMotor, zMotor, start_recording, stop_recording, settings, is_tracking, serialPort, start_af, stop_stream, nodeIndex, track_algorithm, use_avi_l, MAXIMUM_DEVICE_XY_POSITION, MAXIMUM_DEVICE_Z_POSITION
+        global xMotor, yMotor, zMotor, start_recording, stop_recording, settings, is_tracking, serialPort, start_af, stop_stream, nodeIndex, track_algorithm, is_recording, MAXIMUM_DEVICE_XY_POSITION, MAXIMUM_DEVICE_Z_POSITION
         start_af = False
         start_recording = False
         stop_recording = False
@@ -172,7 +180,7 @@ def video_feed():
                             dt = datetime.now(tz=timeZone)
                             dtstr = dt.strftime("%d-%m-%Y_%H-%M")
                             folder_name = settings["filename"] + '_' + dtstr
-                            if use_avi_l:
+                            if settings["use_avi_l"]:
                                 # initialize video writer
                                 fourcc_l = cv2.VideoWriter_fourcc(*'XVID')
                                 parent_path: pathlib.Path = filepathToDirectory(settings["filepath"]) / folder_name
@@ -192,13 +200,13 @@ def video_feed():
                             time = datetime.now(tz=timeZone)
                             dt = time.strftime("%H-%M-%S.%f")
                             csvDump = np.append(csvDump, np.array([(dt, xPos, yPos)], dtype=dtype))
-                            if use_avi_r:
+                            if settings["use_avi_l"]:
                                 video_writer_l.write(display_frame_l)
                             else:
                                 frame_queue_left.put((dt, frame))  # Add frame to queue instead of writing directly
                         if stop_recording:
                             print("Stopped Left Recording")
-                            if use_avi_l:
+                            if settings["use_avi_l"]:
                                 video_writer_l.release()
                             else:
                                 frame_queue_left.put((None, None))
@@ -239,7 +247,7 @@ def video_feed_fluorescent():
     if stop_stream:
         cap2.release()
     def gen():
-        global heatmap_enabled, start_recording_r, stop_recording_r, settings, is_tracking, serialPort, hist_frame, use_avi_r, hist_max, latest_frame
+        global heatmap_enabled, start_recording_r, stop_recording_r, settings, is_tracking, serialPort, hist_frame, hist_max, latest_frame
         is_recording = False
         while (cap2.isOpened()):
             success, frame = cap2.read()
@@ -264,7 +272,7 @@ def video_feed_fluorescent():
                     dt = datetime.now(tz=timeZone)
                     dtstr = dt.strftime("%d-%m-%Y_%H-%M")
                     folder_name = settings["filename"] + '_' + dtstr
-                    if use_avi_r:
+                    if settings["use_avi_r"]:
                         fourcc_r = cv2.VideoWriter_fourcc(*'XVID')
                         parent_path: pathlib.Path = filepathToDirectory(settings["filepath"]) / folder_name
                         if not parent_path.exists(): 
@@ -280,7 +288,7 @@ def video_feed_fluorescent():
                 if is_recording:
                     time = datetime.now(tz=timeZone)
                     dt = time.strftime("%H-%M-%S.%f")
-                    if use_avi_r:
+                    if settings["use_avi_r"]:
                         video_writer_r.write(record_frame_r)
                     else:
                         frame_queue_right.put((dt, frame))  # Add frame to queue instead of writing directly
@@ -288,7 +296,7 @@ def video_feed_fluorescent():
                     print("Stopped Right Recording")
                     is_recording = False
                     stop_recording_r = False
-                    if use_avi_r:
+                    if settings["use_avi_r"]:
                         video_writer_r.release()
                     else:
                         frame_queue_right.put((None, None))  # Signal the writer thread to stop
@@ -349,12 +357,18 @@ def stream_max():
 @cross_origin()
 @app.route("/start_recording", methods=['POST'])
 def start_record():
-    global start_recording, start_recording_r, settings, use_avi_l, use_avi_r
+    global start_recording, start_recording_r, settings
     # Update the settings with the data from the request body
-    settings["filepath"] = request.json["filepath"]
-    settings["filename"] = request.json["filename"]
-    use_avi_l = request.json['use_avi_left']
-    use_avi_r = request.json['use_avi_right']
+    try:
+        settings["filepath"] = request.json["filepath"]
+        settings["filename"] = request.json["filename"]
+        settings['use_avi_l'] = request.json['use_avi_left']
+        settings['use_avi_r'] = request.json['use_avi_right']
+    except KeyError as e:
+        settings['use_avi_l'] = True
+        settings['use_avi_r'] = True
+        print("Using previous or default filepath and filename of this session for this recording.\nTo avoid this, please set the filepath and filename in the UI and start the recording via the UI.")
+    
     # Set the recording flag to True
     start_recording = True
     start_recording_r = True
@@ -646,8 +660,9 @@ def start_controller():
     # Check if any joystick is connected
     pygame.init()
     pygame.joystick.init()
-
-    global isManualEnabled, xMotor, yMotor, zMotor, MAXIMUM_DEVICE_XY_POSITION, MAXIMUM_DEVICE_Z_POSITION
+    global isManualEnabled, xMotor, yMotor, zMotor, is_tracking, is_recording, MAXIMUM_DEVICE_XY_POSITION, MAXIMUM_DEVICE_Z_POSITION
+    # Track last button state to detect button press (not held down)
+    last_x_button_state = False
     
     if pygame.joystick.get_count() > 0:
         # Get the first joystick
@@ -662,10 +677,13 @@ def start_controller():
             sticks_good = True
             print("Joystick count: ", pygame.joystick.get_count())
             print("Joystick axes: ", joystick.get_numaxes())
+            print("Joystick buttons: ", joystick.get_numbuttons())
         else:
             print("Joystick does not have enough axes")
     else:
         print("No joystick connected.")
+        sticks_good = False
+        
     try: 
         while isManualEnabled:
             
@@ -682,22 +700,20 @@ def start_controller():
                 x_data = int(input_x * 2000)
                 y_data = int(input_y * 2000) * -1
                 z_data = int(input_z * 100)
-
-            # listen for keyboard inputs w, a, s, d, pgup, pgdown
-            keys = pygame.key.get_pressed()
-            if keys[pygame.K_w]:
-                y_data = 2000
-            if keys[pygame.K_s]:
-                y_data = -2000
-            if keys[pygame.K_a]:
-                x_data = -2000
-            if keys[pygame.K_d]:
-                x_data = 2000
-            if keys[pygame.K_PAGEUP]:
-                z_data = 100
-            if keys[pygame.K_PAGEDOWN]:
-                z_data = -100
+                    
+            # Check X button (button 2) for tracking toggle
+            if joystick.get_numbuttons() > 2:  # Make sure X button exists
+                current_x_button_state = joystick.get_button(2)
                 
+                # Detect rising edge for X button
+                if current_x_button_state and not last_x_button_state:
+                    # Toggle tracking state
+                    is_tracking = not is_tracking
+                    print(f"X button pressed: {'Enabling' if is_tracking else 'Disabling'} tracking")
+                
+                # Update last X button state
+                last_x_button_state = current_x_button_state
+
             if ((xPos + x_data < MAXIMUM_DEVICE_XY_POSITION
             or xPos + x_data > MINIMUM_DEVICE_POSITION) and input_x != 0):
                 mutex.acquire(blocking=True, timeout=-1)
