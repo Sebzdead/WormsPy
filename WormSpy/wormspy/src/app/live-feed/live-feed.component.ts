@@ -244,7 +244,7 @@ export class LiveFeedComponent implements OnInit {
 
   // Method to enable or disable autofocus in the live feed
   public toggleAutofocus(): void {
-    if (this.isAutofocusEnabled) {
+    if (!this.isAutofocusEnabled) {
       this.http
         .post(this.apiUrl + '/toggle_af', { af_enabled: 'True' })
         .subscribe(() => {});

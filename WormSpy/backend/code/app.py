@@ -428,12 +428,13 @@ def toggle_tracking():
 @cross_origin()
 @app.route("/toggle_af", methods=['POST'])
 def toggle_af():
-    global af_enabled
+    global af_enabled, af_thread
     af_request = request.json['af_enabled'] == "True"
     if af_request and not af_enabled:
         start_autofocus()
     elif not af_request and af_enabled:
-        stop_autofocus()
+        af_enabled = False
+        af_thread.join()
     return str(af_enabled)
 
 @cross_origin()
@@ -493,6 +494,7 @@ def continuous_autofocus(optimal_z, optimal_focus_metric, frame_interval=0.2):
     global af_enabled, zMotor, latest_frame
     pid = PIDController(kp=0.001, ki=0, kd=0.001, setpoint=optimal_focus_metric)
     current_z = optimal_z
+    af_enabled = True
     while af_enabled:
         start_time = time.time()
         if latest_frame is None:
@@ -526,18 +528,9 @@ def start_autofocus():
     optimal_z = zMotor.get_position(unit=Units.NATIVE)
     optimal_focus_metric = calculate_focus_metric(latest_frame)
     print("Autofocus started with optimal_z =", optimal_z, "and optimal_focus_metric =", optimal_focus_metric)
-    af_enabled = True
     af_thread = threading.Thread(target=continuous_autofocus, args=(optimal_z, optimal_focus_metric))
     af_thread.daemon = True
     af_thread.start()
-
-def stop_autofocus():
-    """
-    Stops the continuous autofocus.
-    """
-    global af_enabled
-    af_enabled = False
-    print("Stopping autofocus...")
 
 def smoothing(worm_coords, previous_worm_coords): # exponential smoothing function. Alpha determines how much smoothing is desirable.
     alpha = 0.7
