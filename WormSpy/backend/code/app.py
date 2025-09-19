@@ -8,6 +8,7 @@ import pygame
 import pathlib
 import threading
 import EasyPySpin
+from pypylon import pylon
 import numpy as np
 from datetime import datetime
 from pathlib import Path
@@ -104,7 +105,7 @@ def serve_angular(path):
 def video_feed():
     global leftCam
     # Open the video capture
-    cap = EasyPySpin.VideoCapture(leftCam)
+    cap = EasyPySpin.VideoCapture(leftCam) # change to BaslerCamera(leftCam) for pypylon
     resolution_l = cap.get(cv2.CAP_PROP_FRAME_WIDTH), cap.get(cv2.CAP_PROP_FRAME_HEIGHT)
     initial_coords = [(resolution_l[0]/2), resolution_l[1]/2] # INITIALIZE IN CENTER OF FRAME
     # Check if the camera is opened successfully
@@ -239,7 +240,7 @@ def video_feed():
 @app.route('/video_feed_fluorescent')
 def video_feed_fluorescent():
     global rightCam, stop_stream
-    cap2 = EasyPySpin.VideoCapture(rightCam)
+    cap2 = EasyPySpin.VideoCapture(rightCam) # change to BaslerCamera(rightCam) for pypylon
     # Check if the camera is opened successfully
     if not cap2.isOpened():
         print("Camera can't open\nexit")
@@ -746,6 +747,129 @@ def start_controller():
         print("Exiting...")
         mutex.release()
         pygame.quit()
+
+# --- Basler pypylon compatibility wrapper (replaces EasyPySpin.VideoCapture) ---
+class BaslerCamera:
+    """
+    Minimal wrapper to mimic cv2.VideoCapture using pypylon for Basler cameras.
+    Accepts:
+      - None or "" -> first camera
+      - integer index or "index:<n>" -> camera by index
+      - serial string or "serial:<SERIAL>" -> camera by serial
+      - friendly or full name match
+    """
+    def __init__(self, identifier=None):
+        self.camera = None
+        self.converter = pylon.ImageFormatConverter()
+        self.converter.OutputPixelFormat = pylon.PixelType_Mono8
+        self.converter.OutputBitAlignment = pylon.OutputBitAlignment_MsbAligned
+        self._width = 0
+        self._height = 0
+        try:
+            tl_factory = pylon.TlFactory.GetInstance()
+            devices = tl_factory.EnumerateDevices()
+            if not devices:
+                print("BaslerCamera: No cameras found.")
+                return
+
+            idx = None
+            sid = (str(identifier).strip() if identifier is not None else "")
+            # Parse index:<n>
+            if sid == "":
+                idx = 0
+            elif sid.startswith("index:"):
+                try:
+                    idx = int(sid.split(":", 1)[1])
+                except ValueError:
+                    idx = 0
+            elif sid.isdigit():
+                idx = int(sid)
+            else:
+                # serial:<SERIAL> or direct serial/friendly/full name
+                target = sid.split(":", 1)[1] if sid.lower().startswith("serial:") else sid
+                for i, d in enumerate(devices):
+                    if d.GetSerialNumber() == target or d.GetFriendlyName() == target or d.GetFullName() == target:
+                        idx = i
+                        break
+                if idx is None:
+                    # try partial friendly/full name match
+                    for i, d in enumerate(devices):
+                        if target in d.GetFriendlyName() or target in d.GetFullName():
+                            idx = i
+                            break
+
+            if idx is None or idx < 0 or idx >= len(devices):
+                print(f"BaslerCamera: Identifier did not match any camera: {identifier}")
+                return
+
+            self.camera = pylon.InstantCamera(tl_factory.CreateDevice(devices[idx]))
+            self.camera.Open()
+            # Force Mono8 if available
+            try:
+                if "Mono8" in self.camera.PixelFormat.Symbolics:
+                    self.camera.PixelFormat.SetValue("Mono16")
+            except Exception as e:
+                print("BaslerCamera: Unable to set PixelFormat Mono16:", e)
+
+            # Cache current width/height
+            try:
+                self._width = float(self.camera.Width.Value)
+                self._height = float(self.camera.Height.Value)
+            except Exception:
+                self._width = 0
+                self._height = 0
+
+            self.camera.StartGrabbing(pylon.GrabStrategy_LatestImageOnly)
+        except Exception as e:
+            print("BaslerCamera: Error initializing camera:", e)
+            self.camera = None
+
+    def isOpened(self):
+        return self.camera is not None and self.camera.IsOpen() and self.camera.IsGrabbing()
+
+    def read(self, timeout_ms=5000):
+        if self.camera is None:
+            return False, None
+        try:
+            grab = self.camera.RetrieveResult(timeout_ms, pylon.TimeoutHandling_ThrowException)
+            try:
+                if grab.GrabSucceeded():
+                    img = self.converter.Convert(grab)
+                    frame = img.GetArray()  # numpy uint8 2D
+                    # populate width/height on first successful grab if unknown
+                    if self._width == 0 or self._height == 0:
+                        try:
+                            self._width = frame.shape[1]
+                            self._height = frame.shape[0]
+                        except Exception:
+                            pass
+                    return True, frame
+                else:
+                    return False, None
+            finally:
+                grab.Release()
+        except Exception as e:
+            print("BaslerCamera: Error grabbing frame:", e)
+            return False, None
+
+    def get(self, prop_id):
+        if prop_id == cv2.CAP_PROP_FRAME_WIDTH:
+            return self._width
+        if prop_id == cv2.CAP_PROP_FRAME_HEIGHT:
+            return self._height
+        return 0.0
+
+    def release(self):
+        try:
+            if self.camera:
+                if self.camera.IsGrabbing():
+                    self.camera.StopGrabbing()
+                if self.camera.IsOpen():
+                    self.camera.Close()
+        except Exception:
+            pass
+        finally:
+            self.camera = None
 
 if __name__ == "__main__":
     app.run(host='127.0.0.1', port=5000, debug=False, threaded=True)
