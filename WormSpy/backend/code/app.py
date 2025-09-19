@@ -576,6 +576,9 @@ def trackWorm(input, deviceX: Device, deviceY: Device, deviceXPos, deviceYPos, r
     return (deviceXPos + xCmdAmt), (deviceYPos + yCmdAmt)#, xCmdAmt, yCmdAmt
 
 def Thresh_Light_Background(frame):
+    # Increase contrast using histogram equalization and CLAHE
+    clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8,8))
+    frame = clahe.apply(frame)
     blurred_frame = cv2.GaussianBlur(frame, (33, 33), 99)
     thresh = cv2.adaptiveThreshold(blurred_frame, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY_INV, 99, 5)
     kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
@@ -653,9 +656,11 @@ def start_controller():
     # Check if any joystick is connected
     pygame.init()
     pygame.joystick.init()
-    global isManualEnabled, xMotor, yMotor, zMotor, is_tracking, is_recording, MAXIMUM_DEVICE_XY_POSITION, MAXIMUM_DEVICE_Z_POSITION
+    global isManualEnabled, xMotor, yMotor, zMotor, is_tracking, is_recording, start_recording, start_recording_r, af_enabled, MAXIMUM_DEVICE_XY_POSITION, MAXIMUM_DEVICE_Z_POSITION
     # Track last button state to detect button press (not held down)
     last_x_button_state = False
+    last_a_button_state = False
+    last_b_button_state = False
     
     if pygame.joystick.get_count() > 0:
         # Get the first joystick
@@ -697,15 +702,29 @@ def start_controller():
             # Check X button (button 2) for tracking toggle
             if joystick.get_numbuttons() > 2:  # Make sure X button exists
                 current_x_button_state = joystick.get_button(2)
-                
+                current_a_button_state = joystick.get_button(0)
+                current_b_button_state = joystick.get_button(1)
                 # Detect rising edge for X button
                 if current_x_button_state and not last_x_button_state:
                     # Toggle tracking state
                     is_tracking = not is_tracking
                     print(f"X button pressed: {'Enabling' if is_tracking else 'Disabling'} tracking")
-                
+                if current_a_button_state and not last_a_button_state:
+                    # Toggle recording state
+                    af_enabled = not af_enabled
+                    print(f"A button pressed: {'Starting' if af_enabled else 'Stopping'} focus lock")
+                if current_b_button_state and not last_b_button_state:
+                    # Toggle recording state
+                    if not is_recording: # check if already recording
+                        start_recording = True
+                        start_recording_r = True
+                    is_recording = not is_recording
+                    print(f"B button pressed: {'Starting' if is_recording else 'Stopping'} recording")
+
                 # Update last X button state
                 last_x_button_state = current_x_button_state
+                last_a_button_state = current_a_button_state
+                last_b_button_state = current_b_button_state
 
             if ((xPos + x_data < MAXIMUM_DEVICE_XY_POSITION
             or xPos + x_data > MINIMUM_DEVICE_POSITION) and input_x != 0):
