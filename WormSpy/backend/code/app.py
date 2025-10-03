@@ -578,8 +578,8 @@ def trackWorm(input, deviceX: Device, deviceY: Device, deviceXPos, deviceYPos, r
 
 def Thresh_Light_Background(frame):
     # Increase contrast using histogram equalization and CLAHE
-    clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8,8))
-    frame = clahe.apply(frame)
+    # clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8,8))
+    # frame = clahe.apply(frame)
     blurred_frame = cv2.GaussianBlur(frame, (33, 33), 99)
     thresh = cv2.adaptiveThreshold(blurred_frame, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY_INV, 99, 5)
     kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
