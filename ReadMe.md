@@ -27,7 +27,22 @@ The basic design of WormsPy includes:
 See the demonstration video here: https://youtu.be/mhyYDpziSE8
 
 ## Building the WormsPy imaging platform:
-For a full build guide please see our publication: https://www.biorxiv.org/content/10.1101/2025.03.21.644605v1
+For a full build guide please see our publication: [Nature Communications](https://www.nature.com/articles/s41467-026-72709-w) [bioRxiv](https://www.biorxiv.org/content/10.1101/2025.03.21.644605v1)
+
+Please cite our work if you use this project or any derivative thereof. 
+```bibtex
+@article{Wittekindt2026,
+  author    = {Wittekindt, Sebastian N. and Owens, Hannah and Guisnet, Aur{\'e}lie and Wittekindt, Lennard and Hendricks, Michael},
+  title     = {An epifluorescence microscope design for naturalistic behavior and cellular activity in freely moving {Caenorhabditis elegans}},
+  journal   = {Nature Communications},
+  year      = {2026},
+  volume    = {17},
+  pages     = {4411},
+  doi       = {10.1038/s41467-026-72709-w},
+  url       = {https://doi.org/10.1038/s41467-026-72709-w},
+  publisher = {Springer Nature}
+}
+```
 
 ### Minimum requirements:
 Minimum requirements to use WormSpy:
