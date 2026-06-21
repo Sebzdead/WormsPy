@@ -1186,7 +1186,11 @@ git commit -m "feat: add SpinnakerCamera adapter configured as the acquisition c
   - Add startup construction near `app = Flask(...)` (`app.py:24-27`).
   - Repoint `move_to_center` (`app.py:454-463`) and the manual controller (`app.py:656-749`) at the shared `STAGE`.
 
-> **Note:** This task is hardware-wired and validated by launching the app on the rig (Step 5). It removes acquisition from the HTTP handlers (the root cause of loop drift and motor-on-disconnect). Recording and Hold Focus are intentionally left on their existing code paths for now (Phases 2–3); the engine `sink` is wired but set to a no-op placeholder so behaviour is unchanged until Phase 2.
+> **Note:** This task is hardware-wired and validated by launching the app on the rig (Step 5). It removes acquisition from the HTTP handlers (the root cause of loop drift and motor-on-disconnect). The engine `sink` is wired but set to a no-op placeholder.
+>
+> **ACCEPTED TEMPORARY REGRESSION (decided 2026-06-21):** Because the legacy recording loop lived *inside* the old `video_feed` generators and autofocus/manual/tracking depended on globals those generators set, this minimal Task 9 leaves the app with working **dual display + Center** only. Recording is a silent no-op; `toggle_af` and `toggle_manual` will return HTTP 500 (NameError on the removed motor globals); `toggle_tracking` does nothing (no consumer). These are restored in Phases 2–3 (recording/codec, Hold Focus, and wiring the `Tracker` with the ported algorithms). Do **not** patch the orphaned code in this task.
+>
+> **Insertion-order correction:** place the startup wiring block (Step 1) *after* the configuration constants (after the `settings = {...}` dict / `FPS`), NOT after the CORS block — `STAGE = connect_stage(XYmotorport, Zmotorport)` executes at import time and needs `XYmotorport`/`Zmotorport`/`FPS` already defined.
 
 - [ ] **Step 1: Add startup wiring after the Flask app is created**
 
