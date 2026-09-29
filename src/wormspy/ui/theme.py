@@ -1,4 +1,4 @@
-"""The WormsPy look: a quiet, cool graphite instrument panel with one sea-glass accent.
+"""The WormsPy look: a quiet, cool graphite instrument panel with one GFP-green accent.
 
 Every colour in the UI comes from these tokens. The accent marks the few things that matter:
 the wordmark, primary actions, the tracked point, focus and "all is well" states. Red is
@@ -19,9 +19,12 @@ BORDER_STRONG = "#3b434c"
 TEXT = "#e3e7eb"
 MUTED = "#8b949e"
 FAINT = "#555d66"       # disabled text
-ACCENT = "#5fd4b0"      # sea-glass mint: the WormsPy accent
-ACCENT_DIM = "#2a6b5a"
-ACCENT_BG = "#163029"   # accent-tinted fill for primary buttons and "live" chips
+# GFP / GCaMP green: the hue of their ~510 nm emission (spectral sRGB #00ff4a, hue 137°),
+# slightly softened for a dark screen. Every accent shade shares that hue.
+ACCENT = "#37e669"
+ACCENT_DIM = "#28713d"
+ACCENT_BG = "#132f1b"   # accent-tinted fill for primary buttons and "live" chips
+ACCENT_HOVER = "#193e23"
 RED = "#ff5c61"
 RED_DIM = "#7d2e31"
 RED_BG = "#361719"
@@ -70,7 +73,7 @@ QPushButton:focus {{ border-color: {ACCENT_DIM}; }}
 QPushButton:disabled {{ color: {FAINT}; background: {PANEL}; border-color: {BORDER}; }}
 QPushButton[role="primary"] {{
     background: {ACCENT_BG}; border-color: {ACCENT_DIM}; color: {ACCENT}; font-weight: 600; }}
-QPushButton[role="primary"]:hover {{ background: #1c3d34; border-color: {ACCENT}; }}
+QPushButton[role="primary"]:hover {{ background: {ACCENT_HOVER}; border-color: {ACCENT}; }}
 QPushButton[role="primary"]:disabled {{
     background: {PANEL}; border-color: {BORDER}; color: {FAINT}; }}
 QPushButton[role="danger"] {{
