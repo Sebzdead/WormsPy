@@ -93,6 +93,13 @@ def test_random_access_into_the_video_seeks_exactly(tmp_path):
         assert [int(bf[i][0, 0]) for i in (58, 52, 59, 51)] == [59, 53, 60, 52]
 
 
+def test_long_skips_forward_seek_and_short_ones_decode_forward(tmp_path, monkeypatch):
+    monkeypatch.setattr("wormspy.reader.DECODE_AHEAD", 3)
+    with open_recording(_record(tmp_path, count=12)) as rec:
+        bf = rec["brightfield"]
+        assert [int(bf[i][0, 0]) for i in (50, 53, 60, 61, 55)] == [51, 54, 61, 62, 56]
+
+
 def test_dropped_frames_are_zero_filled_and_marked_invalid(tmp_path):
     with open_recording(_record(tmp_path, drop_clock={53}, drop_follower={56})) as rec:
         assert not rec["gcamp"][53].any()                    # placeholder

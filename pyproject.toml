@@ -16,6 +16,7 @@ dependencies = [
 
 [project.scripts]
 wormspy = "wormspy.app.main:main"
+wormspy-review = "wormspy.app.review:main"   # needs the analysis extra
 
 [project.optional-dependencies]
 # Hardware adapters (ADR 0005). PySpin is not on PyPI: install the wheel shipped with the

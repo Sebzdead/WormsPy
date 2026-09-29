@@ -314,6 +314,44 @@ with open_recording("…/2026-09-28_N2-3/rec-001") as rec:
 Everything about the files, and how to read them without WormsPy, is in
 [recording-format.md](recording-format.md).
 
+### Reviewing a recording
+
+```
+uv sync --extra analysis             # once: the reviewer reads recordings with pandas
+uv run wormspy-review <data_root>/2026-09-28_N2-3            # a session: opens rec-001
+uv run wormspy-review <data_root>/2026-09-28_N2-3/rec-002    # or one recording
+```
+
+Without a path it asks for a folder (**File → Open recording…**, Ctrl/⌘+O). The review window
+plays a recording back with every source on the same frame:
+
+- **Feeds**: brightfield and fluorescence side by side, with the same LUTs, level handles and
+  histograms as the live view. Levels are set once, on the first frame, so brightness is
+  comparable across the recording. The tracked point is drawn where the tracker saw it (a dot
+  in the camera it tracked on, a ring where that maps to in the other camera).
+- **Worm position**: the worm's path on the plate in stage µm. Faint: the whole path; bright:
+  the part travelled so far; the green dot is the current frame and the open circle the start.
+  The path comes from accepted tracker estimates and falls back to the stage position where
+  there are none. Event markers are amber diamonds labelled where they happened; click one to
+  jump there. Drag to pan, scroll to zoom, and the "A" button in the corner refits it.
+- **Scrub bar**: the whole recording in seconds. Click or drag anywhere on it to scrub. The
+  bottom band shows tracking status (green tracking, amber target lost, grey joystick, red
+  stage limit), the thin band above it dropped frames (red), and amber lines the events.
+- **Transport and readout**: play/pause, frame and event stepping, speed (¼× to 8×), and the
+  current frame_index, time, tracking status and position. A red **DROPPED** chip marks a
+  zero-filled placeholder frame; an amber chip names any event on the current frame.
+
+Playback follows the recorded capture times; frames the display cannot keep up with are
+skipped rather than slowing playback down.
+
+| Key | Action |
+|---|---|
+| Space | Play / pause |
+| ← / → | One frame back / forward |
+| Shift+← / Shift+→ | One second back / forward |
+| Page Up / Page Down | Previous / next event |
+| Home / End | First / last frame |
+
 ---
 
 ## 9. Troubleshooting

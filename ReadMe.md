@@ -70,6 +70,7 @@ with open_recording("WormsPy_data/2026-09-28_N2-3/rec-001") as rec:
     calcium = rec["gcamp"].array()     # (frames, height, width), memory-mapped
     rec.frames                         # one row per frame: time, stage position, drops, tracking
 ```
+To watch a recording back, with both channels, the worm's path and its event markers frame-synced on one scrub bar, run `uv run wormspy-review <session or rec-NNN folder>` (see the [user guide](docs/user-guide.md#reviewing-a-recording)).
 
 ### Developer's notes:
 - Code lives in `src/wormspy`, tests in `tests`. Run them with `uv run pytest` and lint with `uv run ruff check`.

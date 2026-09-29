@@ -37,6 +37,9 @@ except ImportError as exc:                 # pragma: no cover - depends on the e
 from wormspy.calibration.routine import RigCalibration
 
 ROLE_SUFFIX = {"fluorescence": ".tif", "behaviour": ".mkv"}
+# An OpenCV seek in FFV1/Matroska costs about as much as decoding ~30 frames (1920×1200:
+# ~270 ms vs ~8 ms per frame), so shorter skips forward decode their way there.
+DECODE_AHEAD = 30
 
 
 class Channel:
@@ -101,7 +104,11 @@ class Channel:
             self._video = cv2.VideoCapture(str(self.path))
             if not self._video.isOpened():
                 raise OSError(f"cannot open {self.path} (OpenCV built without FFV1?)")
-        if position != self._next_position:     # FFV1 is intra-only, so seeking is exact
+        ahead = position - self._next_position
+        if 0 < ahead <= DECODE_AHEAD:            # a short skip forward: decoding beats a seek
+            for _ in range(ahead):
+                self._video.grab()
+        elif ahead:                              # FFV1 is intra-only, so seeking is exact
             self._video.set(cv2.CAP_PROP_POS_FRAMES, position)
         ok, image = self._video.read()
         if not ok:
