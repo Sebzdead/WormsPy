@@ -210,13 +210,16 @@ the metadata you enter, the calibration, and one or more **recordings** (`rec-00
 
 8. In the TRACKING card, choose the **Target**:
    - **Brightfield silhouette:** the worm's dark body on the behaviour camera. This is the
-     usual choice.
-   - **Fluorescent marker:** a bright spot on a fluorescence camera.
+     usual choice, and works for any animal darker than the plate.
+   - **Fluorescent marker:** the brightest spot on a fluorescence camera, e.g. a neuron or a
+     co-injection marker.
 
-   **Camera** follows the target; change it only to track on a different camera.
+   **Camera** follows the target; change it only to track on a different camera. Both
+   targets set their detection threshold automatically on every frame, so there is nothing to
+   adjust for a normal session (section 10 explains how, and what to change if needed).
 9. Press **Start tracking**, or **X** on the gamepad. The dot should sit on the worm and the
-   stage should keep it near the crosshair. Tick **Mask** to confirm the tracker sees the
-   worm and not debris.
+   stage should keep it near the crosshair. Tick **Mask** to see exactly what the tracker
+   detected: the whole body should be tinted, and nothing else.
 
 **Record**
 
@@ -328,30 +331,88 @@ Everything about the files, and how to read them without WormsPy, is in
 
 ---
 
-## 10. Tuning tracking
+## 10. How tracking works, and tuning it
 
-The tracker's settings are in `rig.toml`, under `[tracking.servo]`,
-`[tracking.dark_object]` and `[tracking.bright_marker]`. Every setting is listed there with
-its default and a one-line explanation. Restart WormsPy after editing. A mistyped name or an
-impossible value stops WormsPy at startup with a message naming the key.
+### The loop
+Tracking runs beside acquisition and never slows it down. About 50 times a second it:
 
-**How the trackers find the animal**
-- **Brightfield silhouette** first removes uneven illumination, leaving a map of how much
-  darker each pixel is than its surroundings. The threshold on that map is **automatic** by
-  default: Otsu's method, which adapts to the worm's contrast (a pale L1 as well as an adult).
-  It is never allowed below `k_sigma` × the frame's noise, so an empty plate stays empty. The
-  largest dark blob of at least `min_area_px` is the worm; its centre is the tracked point.
-- **Fluorescent marker** is automatic too: its threshold is the background plus `k_sigma` ×
-  the frame's noise, so it follows exposure and gain changes. It picks the brightest spot and
-  tracks its intensity-weighted centre.
+1. **Finds the animal** in the newest frame from the chosen camera (next section). The result
+   is a pixel, or "nothing found".
+2. **Turns that pixel into a position on the plate.** It uses the calibration, plus the stage
+   position *at the moment that frame was exposed*: stage positions are sampled continuously
+   and interpolated to each frame's capture time. So a moving stage or a late frame doesn't
+   bias the result.
+3. **Checks it is believable.** A new position is accepted only if the worm could have crawled
+   there since the last accepted one: within `jump_margin_um` + `max_worm_speed_um_s` × the
+   time since. Anything further is treated as debris, an egg or a second worm, and ignored.
+   After `lost_after_misses` frames in a row without a believable position, the status becomes
+   **Target lost**. The worm is picked up again automatically when it reappears near where it
+   was last seen; the search radius grows the longer it is gone.
+4. **Steers the stage** toward that plate position (below).
 
-**Common adjustments**
+The target is an **absolute** plate position, not "move a bit left". A missed frame or a slow
+stage therefore never accumulates into drift: the stage always heads for where the worm
+actually is.
+
+### Finding the animal
+**Brightfield silhouette** (`[tracking.dark_object]`)
+1. Works at half resolution for speed; the tracked point stays sub-pixel.
+2. **Flattens the illumination.** It subtracts a heavily blurred copy of the frame, leaving a
+   *contrast map*: how much darker each pixel is than its surroundings. Vignetting, a tilted
+   lamp or a lawn edge no longer matter.
+3. **Chooses the threshold automatically, on every frame,** with Otsu's method on the
+   contrast map. Otsu picks the cut that best separates two populations (here background and
+   body), so it follows the worm's own contrast: a pale L1 larva and a dark adult are both
+   segmented whole, without re-tuning.
+   - The contrast map is used instead of the raw image because the raw image breaks Otsu: the
+     worm covers only ~3% of the frame, and uneven light spreads the background.
+   - Otsu always finds *some* split, even in pure noise. So the threshold is never allowed
+     below `k_sigma` × the frame's noise level, which is measured robustly from the frame
+     itself. On an empty plate nothing clears it, and the tracker reports "nothing found"
+     rather than chasing noise.
+   - To use a fixed contrast instead, set `threshold` to a number of grey levels.
+4. Removes specks, then keeps **the largest dark blob of at least `min_area_px`**. Its centre
+   is the tracked point. The blob is what **Mask** shows.
+
+**Fluorescent marker** (`[tracking.bright_marker]`)
+1. Smooths the frame slightly (`spot_sigma_px`) to average out shot noise.
+2. **Sets the threshold from the frame's own statistics:** background (median) +
+   `k_sigma` × noise. It therefore follows exposure, gain and bleaching automatically. A frame
+   with only noise yields nothing.
+3. Picks the **brightest** spot of at least `min_area_px`, and tracks its intensity-weighted
+   centre (sub-pixel).
+
+### Moving the stage
+The stage is driven with **velocity** commands, not a series of jumps:
+- **Feed-forward:** the stage moves at the worm's own estimated velocity (`feed_forward`,
+  smoothed by `velocity_smoothing`). A steadily crawling worm is followed without lagging
+  behind.
+- **Correction:** on top of that, a speed proportional to how far the worm is from the centre
+  (`gain_per_s` µm/s per µm). Within `deadband_um` of the centre, no correction is applied, so
+  the stage doesn't hunt.
+- **Limits:** speed is capped at `max_speed_um_s`, and changes of speed at `max_accel_um_s2`.
+  Starts, stops and a lost target are therefore smooth ramps. The stage never pushes further
+  into the edge of the safe range (**At stage limit**).
+- **The joystick always wins** (**Joystick override**). Tracking resumes from rest when you
+  let go.
+
+### What is recorded
+Every frame the tracker evaluates is written to `tracking.csv`: the detected pixel, the
+position the stage steered toward, whether it was accepted, and the status. See
+[recording-format.md](recording-format.md).
+
+### Tuning
+All settings above are in `rig.toml`, under `[tracking.servo]`, `[tracking.dark_object]` and
+`[tracking.bright_marker]`. Each is listed there with its default and a one-line explanation.
+Restart WormsPy after editing. A mistyped name or an impossible value stops WormsPy at startup
+with a message naming the key.
 
 | Symptom | Setting |
 |---|---|
 | Debris or eggs picked up instead of the worm | Raise `dark_object.min_area_px` (tick **Mask** to see what is detected). |
 | Worm's body detected in pieces, or only partly | Lower `dark_object.k_sigma`, or set a fixed `threshold` in grey levels. |
 | Background noise or a shadow detected | Set a fixed `dark_object.threshold` above the noise, or raise `k_sigma`. |
+| A large dark object (plate edge, bubble) wins | Set `dark_object.max_area_px`. |
 | Stage lags behind a fast worm | Raise `servo.gain_per_s` (e.g. 2 → 3). Keep `feed_forward = 1`. |
 | Stage overshoots or oscillates | Lower `servo.gain_per_s`, or raise `deadband_um`. |
 | Stage jerks at starts and stops | Lower `servo.max_accel_um_s2`. |
