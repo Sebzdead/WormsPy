@@ -13,6 +13,8 @@ from pathlib import Path
 from wormspy.control import commands as C
 from wormspy.control.gamepad import DEFAULT_BUTTONS, StickConfig
 from wormspy.presets import CameraSettings, exposure_budget_us
+from wormspy.tracking.controller import ServoConfig
+from wormspy.tracking.estimators import BrightMarker, DarkObject
 
 AXES = ("x", "y", "z")
 # Travel of the reference rig: 2× Zaber TSB60E (50.4 mm) and VSR20A (20 mm). Narrow Z in
@@ -82,11 +84,20 @@ class PathsConfig:
 
 
 @dataclass(frozen=True)
+class TrackingConfig:
+    """Servo gains and estimator thresholds (ADR 0008), tuned per rig and per experiment."""
+    servo: ServoConfig = field(default_factory=ServoConfig)
+    dark_object: DarkObject = field(default_factory=DarkObject)
+    bright_marker: BrightMarker = field(default_factory=BrightMarker)
+
+
+@dataclass(frozen=True)
 class RigConfig:
     cameras: CamerasConfig
     stage: StageConfig
     gamepad: GamepadConfig
     paths: PathsConfig
+    tracking: TrackingConfig = field(default_factory=TrackingConfig)
 
 
 def _button_commands() -> dict[str, type]:
@@ -105,16 +116,18 @@ def load_config(path: Path) -> RigConfig:
     path = Path(path)
     if not path.exists():
         # no rig.toml yet: every default
-        return RigConfig(cameras=_cameras({}), stage=_stage({}), gamepad=_gamepad({}),
-                         paths=_paths({}, path))
+        stage = _stage({})
+        return RigConfig(cameras=_cameras({}), stage=stage, gamepad=_gamepad({}),
+                         paths=_paths({}, path), tracking=_tracking({}, stage))
     try:
         raw = tomllib.loads(path.read_text())
     except tomllib.TOMLDecodeError as exc:
         raise ConfigError(f"{path.name}: {exc}") from exc
-    return RigConfig(cameras=_cameras(raw.get("cameras", {})),
-                     stage=_stage(raw.get("stage", {})),
+    stage = _stage(raw.get("stage", {}))
+    return RigConfig(cameras=_cameras(raw.get("cameras", {})), stage=stage,
                      gamepad=_gamepad(raw.get("gamepad", {})),
-                     paths=_paths(raw.get("paths", {}), path))
+                     paths=_paths(raw.get("paths", {}), path),
+                     tracking=_tracking(raw.get("tracking", {}), stage))
 
 
 def _camera(raw: dict, default: CameraConfig, key: str, fps: float) -> CameraConfig:
@@ -159,6 +172,45 @@ def _cameras(raw: dict) -> CamerasConfig:
     if problem:
         raise ConfigError(f"cameras: {problem}")
     return cameras
+
+
+def _tuned(cls, raw: dict, key: str, auto: tuple[str, ...] = ()):
+    """A frozen dataclass with rig.toml's values for its fields. Every value must be a positive
+    number; fields in `auto` may also be "auto" (stored as None: computed per frame)."""
+    types = {f.name: f.type for f in dataclasses.fields(cls)}
+    names = set(types)
+    unknown = set(raw) - names
+    if unknown:
+        raise ConfigError(f"{key}: unknown key(s) {sorted(unknown)}; choose from {sorted(names)}")
+    values = {}
+    for name, value in raw.items():
+        if name in auto and value == "auto":
+            values[name] = None
+            continue
+        if isinstance(value, bool) or not isinstance(value, int | float) or value <= 0:
+            hint = ' or "auto"' if name in auto else ""
+            raise ConfigError(f"{key}.{name} must be a positive number{hint}, not {value!r}")
+        if types[name] is int and not isinstance(value, int):
+            raise ConfigError(f"{key}.{name} must be a whole number, not {value!r}")
+        values[name] = value
+    return cls(**values)
+
+
+def _tracking(raw: dict, stage: StageConfig) -> TrackingConfig:
+    unknown = set(raw) - {"servo", "dark_object", "bright_marker"}
+    if unknown:
+        raise ConfigError(f"tracking: unknown section(s) {sorted(unknown)}")
+    servo = _tuned(ServoConfig, raw.get("servo", {}), "tracking.servo")
+    if servo.max_speed_um_s > stage.max_speed_um_s:
+        raise ConfigError(f"tracking.servo.max_speed_um_s ({servo.max_speed_um_s:g}) is above "
+                          f"stage.max_speed_um_s ({stage.max_speed_um_s:g})")
+    if servo.feed_forward > 1.5 or servo.velocity_smoothing > 1:
+        raise ConfigError("tracking.servo: feed_forward must be ≤ 1.5 and "
+                          "velocity_smoothing ≤ 1")
+    dark = _tuned(DarkObject, raw.get("dark_object", {}), "tracking.dark_object",
+                  auto=("threshold",))
+    marker = _tuned(BrightMarker, raw.get("bright_marker", {}), "tracking.bright_marker")
+    return TrackingConfig(servo=servo, dark_object=dark, bright_marker=marker)
 
 
 def _stage(raw: dict) -> StageConfig:

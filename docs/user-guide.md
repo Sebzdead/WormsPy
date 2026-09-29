@@ -321,13 +321,42 @@ Everything about the files, and how to read them without WormsPy, is in
 | WormsPy won't start: *Set cameras.clock.serial…* or *no camera with serial…* | Enter the serial numbers the message lists into rig.toml. Close SpinView. |
 | Brightfield frozen, fluorescence running | The trigger isn't reaching the behaviour camera. Check the GPIO cable, and `clock_output_line` / `follower_trigger_line` in rig.toml. *(rig check)* |
 | Tracking won't start | Calibrate first (section 4). The live view must be running. |
-| Tracker follows debris | Tick **Mask** to see what it detects. Move the worm clear with the joystick. For persistent problems, the estimator thresholds need adjusting (see below). |
-| Stage oscillates or lags while tracking | The servo gains need adjusting (see below). |
+| Tracker follows debris | Tick **Mask** to see what it detects. Move the worm clear with the joystick. For persistent problems, see section 10. |
+| Stage oscillates or lags while tracking | Adjust the servo gains (section 10). |
 | Joystick moves the wrong way | Set `invert_y` / `invert_z` in `[gamepad.sticks]`. |
 | Everything is dark / saturated | Adjust exposure and gain in the CAMERAS card. Press **Auto levels** for the display only. |
 
-**Tuning tracking.** The tracker's gains and thresholds are not in rig.toml yet. They're set in
-code and will be tuned during rig bring-up:
-- servo gains: `ServoConfig` in `src/wormspy/tracking/controller.py`;
-- estimator thresholds: `DarkObject` and `BrightMarker` in
-  `src/wormspy/tracking/estimators.py`.
+---
+
+## 10. Tuning tracking
+
+The tracker's settings are in `rig.toml`, under `[tracking.servo]`,
+`[tracking.dark_object]` and `[tracking.bright_marker]`. Every setting is listed there with
+its default and a one-line explanation. Restart WormsPy after editing. A mistyped name or an
+impossible value stops WormsPy at startup with a message naming the key.
+
+**How the trackers find the animal**
+- **Brightfield silhouette** first removes uneven illumination, leaving a map of how much
+  darker each pixel is than its surroundings. The threshold on that map is **automatic** by
+  default: Otsu's method, which adapts to the worm's contrast (a pale L1 as well as an adult).
+  It is never allowed below `k_sigma` × the frame's noise, so an empty plate stays empty. The
+  largest dark blob of at least `min_area_px` is the worm; its centre is the tracked point.
+- **Fluorescent marker** is automatic too: its threshold is the background plus `k_sigma` ×
+  the frame's noise, so it follows exposure and gain changes. It picks the brightest spot and
+  tracks its intensity-weighted centre.
+
+**Common adjustments**
+
+| Symptom | Setting |
+|---|---|
+| Debris or eggs picked up instead of the worm | Raise `dark_object.min_area_px` (tick **Mask** to see what is detected). |
+| Worm's body detected in pieces, or only partly | Lower `dark_object.k_sigma`, or set a fixed `threshold` in grey levels. |
+| Background noise or a shadow detected | Set a fixed `dark_object.threshold` above the noise, or raise `k_sigma`. |
+| Stage lags behind a fast worm | Raise `servo.gain_per_s` (e.g. 2 → 3). Keep `feed_forward = 1`. |
+| Stage overshoots or oscillates | Lower `servo.gain_per_s`, or raise `deadband_um`. |
+| Stage jerks at starts and stops | Lower `servo.max_accel_um_s2`. |
+| "Target lost" too often when the worm reverses or coils | Raise `jump_margin_um` or `lost_after_misses`. |
+| Tracker jumps to a second worm | Lower `max_worm_speed_um_s` / `jump_margin_um`. |
+| Marker lost when the neuron is dim | Lower `bright_marker.k_sigma` (e.g. 8 → 6). |
+
+The defaults are a starting point from simulation *(rig check)*.

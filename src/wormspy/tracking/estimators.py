@@ -1,8 +1,11 @@
 """Target estimators (ADR 0008): one frame in, the tracked point out, or "nothing plausible".
 
 - DarkObject: the worm's silhouette in brightfield. Subtracting a heavily blurred background
-  makes the threshold a *contrast* threshold, which is robust to uneven illumination. The
-  largest blob that is big enough to be a worm wins, and its centroid is the tracked point.
+  flattens uneven illumination, leaving a *contrast* image: how much darker each pixel is than
+  its surroundings. The threshold is automatic by default: Otsu's method on the contrast image
+  (it adapts to the worm's contrast, e.g. a pale L1 larva vs. an adult), never below k·noise
+  (so a frame without a worm doesn't split noise into a phantom). A fixed contrast can be set
+  instead. The largest blob big enough to be a worm wins; its centroid is the tracked point.
 - BrightMarker: the brightest fluorescent object. The threshold is set from the frame's own
   noise level (median + k·MAD), so a noise-only frame yields nothing instead of a phantom
   target. The tracked point is the intensity-weighted centroid (sub-pixel).
@@ -25,6 +28,7 @@ class Estimate:
     area_px: float = 0.0
     mask: np.ndarray | None = None         # full-resolution bool mask, for the overlay
     mapped: bool = False                   # mapped from the other camera, not measured here
+    threshold: float | None = None         # the threshold used, for tuning (estimator units)
 
 
 NOTHING = Estimate(point_px=None)
@@ -47,19 +51,32 @@ def _smooth_background(image: np.ndarray, sigma_px: float) -> np.ndarray:
 @dataclass(frozen=True)
 class DarkObject:
     name = "dark_object"
+    threshold: float | None = None       # grey levels darker than background; None = automatic
+    k_sigma: float = 4.0                 # the automatic threshold is never below k · noise
     background_sigma_px: float = 150.0   # much larger than the worm's width
-    min_contrast: float = 25.0           # grey levels darker than the local background
     min_area_px: float = 3000.0          # smaller blobs are debris, not a worm
     max_area_px: float | None = None
     downsample: int = 2
+
+    def contrast_threshold(self, contrast: np.ndarray) -> float:
+        """The fixed threshold, or Otsu's on the contrast image floored at k · noise."""
+        if self.threshold is not None:
+            return self.threshold
+        sample = contrast[::2, ::2]
+        median = float(np.median(sample))
+        noise = float(np.median(np.abs(sample - median))) * MAD_TO_SIGMA
+        otsu, _ = cv2.threshold(np.clip(sample, 0, 255).astype(np.uint8), 0, 255,
+                                cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+        return max(float(otsu), median + self.k_sigma * max(noise, 0.5))
 
     def __call__(self, image: np.ndarray) -> Estimate:
         height, width = image.shape[:2]
         ds = self.downsample
         small = cv2.resize(image.astype(np.float32), (width // ds, height // ds),
                            interpolation=cv2.INTER_AREA)
-        background = _smooth_background(small, self.background_sigma_px / ds)
-        mask = ((background - small) > self.min_contrast).astype(np.uint8)
+        contrast = _smooth_background(small, self.background_sigma_px / ds) - small
+        threshold = self.contrast_threshold(contrast)
+        mask = (contrast > threshold).astype(np.uint8)
         kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
         mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel)
         mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel)
@@ -72,13 +89,14 @@ class DarkObject:
             if area > best_area:
                 best, best_area = label, area
         if best is None:
-            return NOTHING
+            return Estimate(point_px=None, threshold=threshold)
         cx, cy = centroids[best]
         full_mask = cv2.resize((labels == best).astype(np.uint8), (width, height),
                                interpolation=cv2.INTER_NEAREST).astype(bool)
         # a pixel's centre at small index i sits at full-resolution coordinate ds*i + (ds-1)/2
         point = (float(cx * ds + (ds - 1) / 2), float(cy * ds + (ds - 1) / 2))
-        return Estimate(point_px=point, area_px=float(best_area), mask=full_mask)
+        return Estimate(point_px=point, area_px=float(best_area), mask=full_mask,
+                        threshold=threshold)
 
 
 @dataclass(frozen=True)
@@ -105,10 +123,11 @@ class BrightMarker:
             if peak > best_peak:
                 best, best_peak = label, peak
         if best is None:
-            return NOTHING
+            return Estimate(point_px=None, threshold=threshold)
         region = labels == best
         weights = np.where(region, raw - background, 0.0).clip(min=0.0)
         total = float(weights.sum())
         rows, cols = np.indices(raw.shape)
         point = (float((cols * weights).sum() / total), float((rows * weights).sum() / total))
-        return Estimate(point_px=point, area_px=float(region.sum()), mask=region)
+        return Estimate(point_px=point, area_px=float(region.sum()), mask=region,
+                        threshold=threshold)

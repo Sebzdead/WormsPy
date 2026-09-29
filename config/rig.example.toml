@@ -57,6 +57,34 @@ B = "ToggleRecording"
 A = "ReturnToFocus"
 Y = "SetFocus"
 
+# --- Tracking (ADR 0008) ---------------------------------------------------------------
+# Tuning for the tracker. Changes take effect when WormsPy is restarted. Distances are µm on
+# the plate; sizes are camera pixels (the reference rig samples ~0.75 µm/px).
+
+[tracking.servo]
+gain_per_s = 2.0               # stage speed (µm/s) per µm the worm is off-centre; higher = snappier
+deadband_um = 10               # hold still while the worm is this close to the centre
+max_speed_um_s = 1500          # never faster than this (must not exceed stage.max_speed_um_s)
+max_accel_um_s2 = 3000         # smooth starts and stops; lower if the plate sloshes
+feed_forward = 1.0             # follow the worm's own velocity (0 = off, 1 = fully)
+velocity_smoothing = 0.2       # 0–1: weight of each new velocity sample (lower = smoother)
+max_worm_speed_um_s = 500      # faster apparent jumps are rejected as debris / another worm
+jump_margin_um = 100           # extra allowance for estimator jitter and body-shape changes
+lost_after_misses = 3          # frames without a plausible target before "Target lost"
+
+[tracking.dark_object]         # "Brightfield silhouette"
+threshold = "auto"             # "auto" (Otsu, floored at k_sigma × noise) or grey levels
+k_sigma = 4.0                  # floor of the automatic threshold, in noise standard deviations
+min_area_px = 3000             # dark blobs smaller than this are debris, not a worm
+# max_area_px = 60000          # optional: ignore blobs larger than this (e.g. plate edge)
+background_sigma_px = 150      # illumination flattening scale; well above the worm's width
+downsample = 2                 # work at 1/2 resolution (faster; the centroid stays sub-pixel)
+
+[tracking.bright_marker]       # "Fluorescent marker"
+k_sigma = 8.0                  # threshold = background + k_sigma × noise (automatic per frame)
+spot_sigma_px = 2.0            # about the marker's radius; smooths shot noise
+min_area_px = 3                # smaller bright specks are ignored
+
 [paths]
 data_root = "~/WormsPy_data"   # sessions are created here as <date>_<animal-id>/
 # calibration = "calibration.json"   # default: next to this file

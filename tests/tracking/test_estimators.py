@@ -8,7 +8,7 @@ from wormspy.sim.worm import SyntheticWorm
 from wormspy.tracking.estimators import BrightMarker, DarkObject
 
 GEOM = ImageGeometry(width_px=480, height_px=300, um_per_px=3.0)
-DARK = DarkObject(background_sigma_px=40.0, min_contrast=25, min_area_px=200)
+DARK = DarkObject(background_sigma_px=40.0, min_area_px=200)   # automatic threshold
 MARKER = BrightMarker(spot_sigma_px=1.5, k_sigma=8.0, min_area_px=2)
 
 
@@ -54,6 +54,27 @@ def test_dark_object_ignores_debris_smaller_than_a_worm():
     far = SyntheticWorm(seed=0, start_um=(1e6, 1e6))
     img = render_behaviour(far, (0.0, 0.0), GEOM, target=True)   # beads: small dark specks
     assert DARK(img).point_px is None
+
+
+@pytest.mark.parametrize("contrast", [140, 60, 30])
+def test_the_automatic_threshold_adapts_to_pale_and_dark_worms(contrast):
+    worm = _worm(seed=2)
+    img = render_behaviour(worm, worm.centroid, GEOM, background=200, body=200 - contrast,
+                           noise_sigma=4.0, rng=np.random.default_rng(2))
+    estimate = DARK(img)
+    truth = render_behaviour(worm, worm.centroid, GEOM) < 128
+    assert estimate.point_px is not None
+    assert estimate.area_px == pytest.approx(truth.sum(), rel=0.2)   # the whole body, no halo
+    assert 0 < estimate.threshold < contrast
+
+
+def test_a_fixed_threshold_overrides_the_automatic_one():
+    worm = _worm(seed=2)
+    img = render_behaviour(worm, worm.centroid, GEOM, background=200, body=170)  # contrast 30
+    assert DarkObject(threshold=50.0, background_sigma_px=40.0,
+                      min_area_px=200)(img).point_px is None
+    fixed = DarkObject(threshold=15.0, background_sigma_px=40.0, min_area_px=200)(img)
+    assert fixed.point_px is not None and fixed.threshold == 15.0
 
 
 def test_dark_object_returns_a_mask_for_the_overlay():

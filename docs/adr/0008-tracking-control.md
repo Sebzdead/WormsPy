@@ -85,3 +85,18 @@ and stage jerk blurs frames and couples into the calcium signal.
   Stop Live and Shutdown all stop the tracker, which stops the stage.
 - **Tuning** (`ServoConfig` defaults: gain 2 s⁻¹, deadband 10 µm, max speed 1500 µm/s, max
   acceleration 3000 µm/s²) was done in simulation only. Re-check it on the rig.
+
+## Amendment (2026-09-29): automatic threshold, tuning in rig.toml
+
+- **DarkObject's threshold is automatic by default.** Otsu's method runs on the
+  illumination-flattened contrast image, and the result is never below k·noise (MAD of the
+  same image). On the simulator this segments the same body area for worm contrasts from 140 to
+  30 grey levels, and returns nothing on empty plates. The 4σ floor keeps faint worms
+  trackable, while `min_area_px` removes the isolated noise pixels that clear it. A fixed
+  `threshold` (grey levels) overrides it. BrightMarker was already noise-adaptive
+  (background + k·MAD). Each Estimate reports the threshold it used.
+- **Every servo and estimator parameter is in rig.toml** (`[tracking.servo]`,
+  `[tracking.dark_object]`, `[tracking.bright_marker]`), so operators can tune without
+  touching code. Values are validated at startup: known keys only, positive numbers, whole
+  numbers where needed, the servo speed within the stage's cap. The shipped example spells out
+  every default, and a test keeps it in step with the code.

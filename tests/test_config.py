@@ -116,3 +116,50 @@ name = "bf"
 def test_bad_camera_settings_are_rejected_by_name(tmp_path, text, message):
     with pytest.raises(ConfigError, match=message):
         load_config(_write(tmp_path, text))
+
+
+def test_tracking_defaults_match_the_code_defaults(tmp_path):
+    from wormspy.tracking.controller import ServoConfig
+    from wormspy.tracking.estimators import BrightMarker, DarkObject
+    tracking = load_config(_write(tmp_path, "")).tracking
+    assert tracking.servo == ServoConfig()
+    assert tracking.dark_object == DarkObject() and tracking.dark_object.threshold is None
+    assert tracking.bright_marker == BrightMarker()
+
+
+def test_the_example_config_spells_out_every_tracking_default():
+    from wormspy.tracking.controller import ServoConfig
+    from wormspy.tracking.estimators import BrightMarker, DarkObject
+    tracking = load_config(EXAMPLE).tracking
+    assert (tracking.servo, tracking.dark_object, tracking.bright_marker) == (
+        ServoConfig(), DarkObject(), BrightMarker())
+
+
+def test_tracking_values_are_read_from_the_file(tmp_path):
+    tracking = load_config(_write(tmp_path, """
+[tracking.servo]
+gain_per_s = 3.5
+lost_after_misses = 5
+[tracking.dark_object]
+threshold = 30
+max_area_px = 50000
+[tracking.bright_marker]
+k_sigma = 6
+""")).tracking
+    assert tracking.servo.gain_per_s == 3.5 and tracking.servo.lost_after_misses == 5
+    assert tracking.dark_object.threshold == 30 and tracking.dark_object.max_area_px == 50000
+    assert tracking.bright_marker.k_sigma == 6
+
+
+@pytest.mark.parametrize(("text", "message"), [
+    ("[tracking.servo]\ngain = 2", "unknown key"),
+    ("[tracking.servo]\ngain_per_s = -1", "positive number"),
+    ("[tracking.servo]\nlost_after_misses = 2.5", "whole number"),
+    ("[tracking.servo]\nmax_speed_um_s = 5000", "stage.max_speed_um_s"),
+    ("[tracking.dark_object]\nthreshold = 'otsu'", '"auto"'),
+    ("[tracking.bright_marker]\nthreshold = 'auto'", "unknown key"),
+    ("[tracking.estimator]\nx = 1", "unknown section"),
+])
+def test_bad_tracking_settings_are_rejected_by_name(tmp_path, text, message):
+    with pytest.raises(ConfigError, match=message):
+        load_config(_write(tmp_path, text))

@@ -155,6 +155,9 @@ def build(argv: list[str]) -> App:
     executor = Executor(store, rig, hub, data_root=config.paths.data_root,
                         calibration_path=config.paths.calibration,
                         presets_path=config.paths.presets,
+                        estimators={"dark_object": config.tracking.dark_object,
+                                    "bright_marker": config.tracking.bright_marker},
+                        servo=config.tracking.servo,
                         override=(lambda: gamepad.xy_active) if gamepad else (lambda: False))
 
     def status() -> StatusInfo:
