@@ -13,6 +13,7 @@ Status changes (tracking / lost / override / limit) are dispatched to the state 
 
 import threading
 from collections.abc import Callable
+from contextlib import suppress
 
 from wormspy.acquisition.stage_poller import StagePoller
 from wormspy.calibration.math import CameraCalibration
@@ -51,6 +52,7 @@ class Tracker:
         self.status: TrackingStatus | None = None
         self.last_estimate = None          # newest Estimate, for the display overlay
         self.source_channel = source_channel
+        self._failing = False
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
 
@@ -66,11 +68,21 @@ class Tracker:
         if self._thread is not None and self._thread is not threading.current_thread():
             self._thread.join()
         for axis in "xy":
-            self._stage.stop(axis)
+            with suppress(Exception):
+                self._stage.stop(axis)
 
     def _run(self) -> None:
         while not self._stop.is_set():
-            self.step()
+            try:
+                self.step()
+                if self._failing:
+                    self._failing = False
+                    self._dispatch(E.AlarmCleared(kind="tracking_error"))
+            except Exception as exc:  # noqa: BLE001 - surface error without killing tracker
+                if not self._failing:
+                    self._failing = True
+                    self._dispatch(E.AlarmRaised(
+                        kind="tracking_error", message=f"Tracker error: {exc}"))
             self._stop.wait(self._interval_s)
 
     # --- one step ---------------------------------------------------------------------------

@@ -109,3 +109,31 @@ def test_telemetry_is_blank_before_the_first_sample():
     poller = StagePoller(_stage(), Clock())
     row = StageTelemetry(poller, focus_z_um=lambda: None)(_pair(0.0))
     assert "x_um" not in row and row["focus_set_z_um"] is None
+
+
+def test_transient_stage_error_reports_once_and_recovers_without_killing_poller():
+    stage = _stage()
+    fail = True
+    real_pos = stage.position_um
+
+    def flaky(axis):
+        if fail:
+            raise OSError("serial timeout")
+        return real_pos(axis)
+
+    stage.position_um = flaky
+    errors, recovered = [], []
+    poller = StagePoller(stage, time.monotonic, rate_hz=100.0,
+                         on_error=errors.append, on_recover=lambda: recovered.append(True))
+    poller.start()
+    deadline = time.monotonic() + 2
+    while not errors and time.monotonic() < deadline:
+        time.sleep(0.01)
+    time.sleep(0.05)
+    assert len(errors) == 1 and "serial timeout" in errors[0]
+    fail = False
+    deadline = time.monotonic() + 2
+    while not recovered and time.monotonic() < deadline:
+        time.sleep(0.01)
+    poller.stop()
+    assert len(recovered) == 1 and poller.latest() is not None

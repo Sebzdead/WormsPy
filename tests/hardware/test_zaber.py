@@ -82,3 +82,59 @@ def test_connect_stage_falls_back_to_a_null_stage_when_hardware_is_missing():
 def test_connect_stage_returns_the_connected_stage():
     stage, _ = _stage()
     assert connect_stage(connector=lambda: stage) is stage
+
+
+def test_setting_limit_min_above_previous_max_retries_with_max_first():
+    class StrictAxis(FakeAxis):
+        def __init__(self):
+            super().__init__()
+            self.stored_max = 100.0
+            self.order = []
+
+        def set(self, setting, value, unit=Units.NATIVE):
+            self.order.append((setting, value))
+            if setting == "limit.min" and value > self.stored_max:
+                raise RuntimeError("BADDATA: limit.min > limit.max")
+            if setting == "limit.max":
+                self.stored_max = value
+            super().set(setting, value, unit=unit)
+
+    axes = {"x": StrictAxis(), "y": FakeAxis(), "z": FakeAxis(5_000.0)}
+    stage = ZaberStage(axes, safe_ranges_um=SAFE, max_speed_um_s=2000.0)
+    assert stage.limits_um("x") == (1_000.0, 49_000.0)
+    assert axes["x"].limits["limit.min"] == (1_000.0, Units.LENGTH_MICROMETRES)
+    assert axes["x"].limits["limit.max"] == (49_000.0, Units.LENGTH_MICROMETRES)
+
+
+def test_unhomed_axis_records_a_warning():
+    axes = {"x": FakeAxis(), "y": FakeAxis(), "z": FakeAxis(5_000.0)}
+    axes["z"].is_homed = lambda: False
+    stage = ZaberStage(axes, safe_ranges_um=SAFE, max_speed_um_s=2000.0)
+    assert len(stage.warnings) == 1 and "z" in stage.warnings[0] and "homed" in stage.warnings[0]
+
+
+def test_connect_closes_already_opened_port_when_second_port_or_detect_fails(monkeypatch):
+    import pytest
+    import zaber_motion
+    import zaber_motion.ascii
+
+    opened = []
+
+    class FakeConnection:
+        def __init__(self, port):
+            self.port = port
+            self.closed = False
+            opened.append(self)
+
+        def detect_devices(self):
+            return []  # too few XY devices
+
+        def close(self):
+            self.closed = True
+
+    monkeypatch.setattr(zaber_motion.Library, "enable_device_db_store", lambda: None)
+    monkeypatch.setattr(zaber_motion.ascii.Connection, "open_serial_port",
+                        staticmethod(lambda port: FakeConnection(port)))
+    with pytest.raises(RuntimeError, match="Expected 2 XY devices"):
+        ZaberStage.connect("COM6", "COM3", SAFE, 2000.0)
+    assert len(opened) == 2 and all(c.closed for c in opened)

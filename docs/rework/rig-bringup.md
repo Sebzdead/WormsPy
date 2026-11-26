@@ -6,10 +6,11 @@ ones before it passed.
 
 ## 1. Install
 
-- [ ] Spinnaker SDK installed, and SpinView sees both cameras.
-- [ ] `uv sync --extra zaber --extra gamepad`
+- [ ] Spinnaker SDK **4.x** (e.g. 4.4+) installed so a Python 3.12 (`cp312`) wheel is available, and SpinView sees both cameras.
+- [ ] `uv sync --extra zaber --extra gamepad --extra analysis`
 - [ ] `uv pip install spinnaker_python-<version>.whl`, using the wheel matching the venv's
-      Python. `uv run python -c "import PySpin"` works.
+      Python (`cp312-cp312-win_amd64`). `uv run --no-sync python -c "import PySpin"` works.
+      *(Use `--no-sync` on `uv run` so `uv` does not uninstall `spinnaker_python` or optional extras.)*
 - [ ] `config/rig.toml` copied from `rig.example.toml`, with both camera serials and both
       Zaber ports filled in.
 - [ ] Close SpinView and Zaber Launcher before starting WormsPy. Each holds the devices
@@ -21,9 +22,9 @@ The defaults follow FLIR's Blackfly S synchronisation app note: the clock camera
 ExposureActive on **Line2**, with its 3.3 V enabled, and the follower triggers on **Line3**,
 rising edge. Check them against the GPIO pinout of your cable.
 
-- [ ] Start WormsPy and press **Start live**. Both feeds update.
+- [ ] Start WormsPy (`uv run --no-sync wormspy`) and press **Start live**. Both feeds update.
 - [ ] Unplug the GPIO cable. The behaviour feed freezes while fluorescence keeps running, and
-      the frames-dropped alarm counts up. Plug it back in.
+      the missing-frames alarm appears. Plug it back in and confirm the alarm clears.
 - [ ] If the behaviour feed is frozen from the start, set `follower_trigger_line`
       / `clock_output_line` in rig.toml and restart.
 
@@ -47,7 +48,10 @@ rising edge. Check them against the GPIO pinout of your cable.
 
 ## 5. Stage (ADR 0005)
 
-- [ ] No "No stage" alarm at startup.
+- [ ] No "No stage" or unhomed-axis alarm at startup (home the axes in Zaber Launcher if
+      warned).
+- [ ] In Windows Device Manager, set the FTDI USB-serial **Latency Timer** to **1 ms** on the
+      Zaber COM ports if polling or tracking feels sluggish.
 - [ ] Zaber Launcher shows `limit.min` / `limit.max` equal to `stage.safe_range_um`.
 - [ ] **Z safe range:** with the objective raised, drive Z toward each end of the range with
       the joystick. It stops at the configured limit, clear of the plate and holder.

@@ -6,6 +6,7 @@ itself stops velocity moves at the edge even if the app hangs. Software also cla
 """
 
 from collections.abc import Callable
+from contextlib import suppress
 
 from wormspy.core.stage import NullStage, Stage, clamp
 
@@ -19,10 +20,25 @@ class ZaberStage(Stage):
         self._limits = dict(safe_ranges_um)
         self._max_speed = max_speed_um_s
         self._connections = connections
+        warnings: list[str] = []
         for name, axis in self._axes.items():
             lo, hi = self._limits[name]
-            axis.settings.set("limit.min", lo, unit=Units.LENGTH_MICROMETRES)
-            axis.settings.set("limit.max", hi, unit=Units.LENGTH_MICROMETRES)
+            self._set_limits(axis, lo, hi)
+            is_homed = getattr(axis, "is_homed", None)
+            if callable(is_homed) and not is_homed():
+                warnings.append(
+                    f"Stage axis {name} is not homed — home the Zaber stage in Zaber Launcher "
+                    "before moving.")
+        self.warnings: tuple[str, ...] = tuple(warnings)
+
+    def _set_limits(self, axis, lo: float, hi: float) -> None:
+        unit = self._units.LENGTH_MICROMETRES
+        try:
+            axis.settings.set("limit.min", lo, unit=unit)
+            axis.settings.set("limit.max", hi, unit=unit)
+        except Exception:  # noqa: BLE001 - retry with limit.max first if old limit.max < lo
+            axis.settings.set("limit.max", hi, unit=unit)
+            axis.settings.set("limit.min", lo, unit=unit)
 
     @classmethod
     def connect(cls, xy_port: str, z_port: str, safe_ranges_um: dict[str, tuple[float, float]],
@@ -32,15 +48,32 @@ class ZaberStage(Stage):
         from zaber_motion import Library
         from zaber_motion.ascii import Connection
         Library.enable_device_db_store()
-        xy, z = Connection.open_serial_port(xy_port), Connection.open_serial_port(z_port)
-        horizontal, vertical = xy.detect_devices(), z.detect_devices()
-        axes = {"x": horizontal[0].get_axis(1), "y": horizontal[1].get_axis(1),
-                "z": vertical[0].get_axis(1)}
-        return cls(axes, safe_ranges_um, max_speed_um_s, connections=(xy, z))
+        opened: list = []
+        try:
+            xy = Connection.open_serial_port(xy_port)
+            opened.append(xy)
+            z = Connection.open_serial_port(z_port)
+            opened.append(z)
+            horizontal, vertical = xy.detect_devices(), z.detect_devices()
+            if len(horizontal) < 2:
+                raise RuntimeError(
+                    f"Expected 2 XY devices on {xy_port}, found {len(horizontal)}.")
+            if len(vertical) < 1:
+                raise RuntimeError(
+                    f"Expected 1 Z device on {z_port}, found {len(vertical)}.")
+            axes = {"x": horizontal[0].get_axis(1), "y": horizontal[1].get_axis(1),
+                    "z": vertical[0].get_axis(1)}
+            return cls(axes, safe_ranges_um, max_speed_um_s, connections=(xy, z))
+        except Exception:
+            for conn in opened:
+                with suppress(Exception):
+                    conn.close()
+            raise
 
     def close(self) -> None:
         for connection in self._connections:
-            connection.close()
+            with suppress(Exception):
+                connection.close()
 
     def is_connected(self) -> bool:
         return True

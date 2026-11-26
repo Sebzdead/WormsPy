@@ -56,7 +56,12 @@ class FlirCamera(Camera):
         self._exposure_us = float(config.exposure_us)
         if not cam.IsInitialized():
             cam.Init()
-        self._configure_common()
+        try:
+            self._configure_common()
+        except Exception:
+            cam.DeInit()
+            self._cam = None
+            raise
 
     # --- configuration ------------------------------------------------------------------
 
@@ -80,9 +85,27 @@ class FlirCamera(Camera):
         except (HardwareError, AttributeError):
             pass
 
+    def _reset_roi(self) -> None:
+        """Clear any leftover ROI or binning (e.g. from SpinView) before sizing buffers."""
+        for node, val in (("BinningHorizontal", 1), ("BinningVertical", 1),
+                          ("OffsetX", 0), ("OffsetY", 0)):
+            self._try_set(node, val)
+        for axis in ("Width", "Height"):
+            try:
+                node = getattr(self._cam, axis)
+                max_val = node.GetMax()
+            except (self._ps.SpinnakerException, AttributeError, TypeError):
+                continue
+            if isinstance(max_val, int):
+                self._try_set(axis, max_val)
+
     def _configure_common(self) -> None:
         c = self.config
         self._set("TriggerMode", "Off")
+        # Disable frame rate limiting before writing ExposureTime so a retained high rate
+        # from SpinView or an earlier run cannot reject the configured exposure.
+        self._try_set("AcquisitionFrameRateEnable", False)
+        self._reset_roi()
         self._set("AcquisitionMode", "Continuous")
         self._set("PixelFormat", c.pixel_format)
         self._set("ExposureAuto", "Off")
@@ -235,7 +258,11 @@ class FlirSystem:
         except self._ps.SpinnakerException as exc:
             raise HardwareError(f"{key}: no camera with serial {config.serial} "
                                 f"(cameras found: {found}).") from exc
-        camera = FlirCamera(cam, self._ps, config, **kwargs)
+        try:
+            camera = FlirCamera(cam, self._ps, config, **kwargs)
+        except Exception:
+            del cam
+            raise
         self._cameras.append(camera)
         return camera
 

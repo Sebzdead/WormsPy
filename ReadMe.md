@@ -56,9 +56,9 @@ Please cite our work if you use this project or any derivative thereof.
 ### Getting started with WormsPy:
 1. Install [uv](https://docs.astral.sh/uv/) and clone this repository.
 2. Try the simulated rig, no hardware needed: `uv run wormspy --sim`
-3. On the rig PC, install the Spinnaker SDK and put its Python wheel into the environment: `uv sync --extra zaber --extra gamepad`, then `uv pip install spinnaker_python-<version>.whl`. The wheel ships with the SDK and must match your Python version.
+3. On the rig PC, install the Spinnaker SDK (4.x for Python 3.12) and put its Python wheel into the environment: `uv sync --extra zaber --extra gamepad --extra analysis`, then `uv pip install spinnaker_python-<version>.whl`. The wheel ships with the SDK and must match your Python version (`cp312`).
 4. Copy `config/rig.example.toml` to `config/rig.toml` and fill in the camera serial numbers, Zaber serial ports and, importantly, a safe Z range for your objective.
-5. Run `uv run wormspy`.
+5. Run `uv run --no-sync wormspy` (`--no-sync` keeps `uv` from removing the manual `spinnaker_python` wheel and optional extras).
 
 See the [user guide](docs/user-guide.md) for calibration and running a session.
 

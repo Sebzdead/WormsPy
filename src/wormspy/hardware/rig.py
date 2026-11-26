@@ -95,6 +95,8 @@ def open_rig(config: RigConfig, pyspin=None,
         stage = NullStage()
         warnings.append(f"No stage ({type(exc).__name__}: {exc}). Check the Zaber ports in "
                         "rig.toml; joystick, tracking and calibration need the stage.")
+    else:
+        warnings.extend(getattr(stage, "warnings", ()))
     closers = [system.close]
     if hasattr(stage, "close"):
         closers.append(stage.close)

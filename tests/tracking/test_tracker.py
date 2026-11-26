@@ -130,3 +130,32 @@ def test_the_latest_estimate_is_available_for_the_display_overlay():
     loop.run(1.0)
     estimate = loop.tracker.last_estimate
     assert estimate is not None and estimate.point_px is not None and estimate.mask is not None
+
+
+def test_transient_stage_error_raises_tracking_alarm_and_recovers():
+    import time
+    loop = Loop()
+    loop.run(0.5)
+    fail = True
+    real_limits = loop.stage.limits_um
+
+    def flaky(axis):
+        if fail:
+            raise OSError("COM timeout")
+        return real_limits(axis)
+
+    loop.stage.limits_um = flaky
+    loop.tracker._interval_s = 0.01
+    loop.tracker.start()
+    deadline = time.monotonic() + 2
+    while not any(isinstance(e, E.AlarmRaised) and e.kind == "tracking_error"
+                  for e in loop.events) and time.monotonic() < deadline:
+        time.sleep(0.01)
+    fail = False
+    deadline = time.monotonic() + 2
+    while not any(isinstance(e, E.AlarmCleared) and e.kind == "tracking_error"
+                  for e in loop.events) and time.monotonic() < deadline:
+        time.sleep(0.01)
+    loop.tracker.stop()
+    assert len([e for e in loop.events
+                if isinstance(e, E.AlarmRaised) and e.kind == "tracking_error"]) == 1

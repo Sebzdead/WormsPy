@@ -70,10 +70,17 @@ class CamerasConfig:
                               follower_gain_db=self.follower.gain_db)
 
 
+DEFAULT_AXIS_INDICES = {"left_x": 0, "left_y": 1, "right_y": 3}
+DEFAULT_BUTTON_INDICES = {"A": 0, "B": 1, "X": 2, "Y": 3}
+
+
 @dataclass(frozen=True)
 class GamepadConfig:
     sticks: StickConfig = field(default_factory=StickConfig)
     buttons: dict[str, type] = field(default_factory=lambda: dict(DEFAULT_BUTTONS))
+    axes: dict[str, int] = field(default_factory=lambda: dict(DEFAULT_AXIS_INDICES))
+    button_indices: dict[str, int] = field(
+        default_factory=lambda: dict(DEFAULT_BUTTON_INDICES))
 
 
 @dataclass(frozen=True)
@@ -231,6 +238,9 @@ def _stage(raw: dict) -> StageConfig:
 
 
 def _gamepad(raw: dict) -> GamepadConfig:
+    unknown_sections = set(raw) - {"sticks", "buttons", "axes", "button_indices"}
+    if unknown_sections:
+        raise ConfigError(f"gamepad: unknown section(s) {sorted(unknown_sections)}")
     sticks_raw = raw.get("sticks", {})
     unknown = set(sticks_raw) - {f.name for f in dataclasses.fields(StickConfig)}
     if unknown:
@@ -249,7 +259,28 @@ def _gamepad(raw: dict) -> GamepadConfig:
                 raise ConfigError(f"gamepad.buttons.{button}: unknown command {command!r}; "
                                   f"choose from {sorted(allowed)}")
             buttons[button] = allowed[command]
-    return GamepadConfig(sticks=sticks, buttons=buttons)
+    axes = _index_map(raw.get("axes"), DEFAULT_AXIS_INDICES, "gamepad.axes", restrict_keys=True)
+    button_indices = _index_map(raw.get("button_indices"), DEFAULT_BUTTON_INDICES,
+                                "gamepad.button_indices", restrict_keys=False)
+    return GamepadConfig(sticks=sticks, buttons=buttons, axes=axes,
+                         button_indices=button_indices)
+
+
+def _index_map(raw: dict | None, defaults: dict[str, int], key: str,
+               restrict_keys: bool) -> dict[str, int]:
+    out = dict(defaults)
+    if raw is None:
+        return out
+    if restrict_keys:
+        unknown = set(raw) - set(defaults)
+        if unknown:
+            raise ConfigError(f"{key}: unknown key(s) {sorted(unknown)}; "
+                              f"choose from {sorted(defaults)}")
+    for name, idx in raw.items():
+        if isinstance(idx, bool) or not isinstance(idx, int) or idx < 0:
+            raise ConfigError(f"{key}.{name} must be a non-negative integer, not {idx!r}")
+        out[name] = idx
+    return out
 
 
 def _paths(raw: dict, config_path: Path) -> PathsConfig:

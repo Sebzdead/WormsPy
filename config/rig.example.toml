@@ -57,6 +57,17 @@ B = "ToggleRecording"
 A = "ReturnToFocus"
 Y = "SetFocus"
 
+# [gamepad.axes]                # override pygame axis indices if your controller differs
+# left_x = 0
+# left_y = 1
+# right_y = 3
+
+# [gamepad.button_indices]      # override pygame button indices if your controller differs
+# A = 0
+# B = 1
+# X = 2
+# Y = 3
+
 # --- Tracking (ADR 0008) ---------------------------------------------------------------
 # Tuning for the tracker. Changes take effect when WormsPy is restarted. Distances are µm on
 # the plate; sizes are camera pixels (the reference rig samples ~0.75 µm/px).

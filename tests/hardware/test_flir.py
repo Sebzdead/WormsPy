@@ -158,3 +158,33 @@ def test_without_pyspin_the_error_says_how_to_install_it(monkeypatch):
     monkeypatch.setitem(sys.modules, "PySpin", None)
     with pytest.raises(HardwareError, match="Spinnaker"):
         FlirSystem()
+
+
+def test_frame_rate_limit_is_disabled_and_roi_reset_before_exposure():
+    cam = FakeCamera("21000001")
+    cam.Width.GetMax = lambda: 1920
+    cam.Height.GetMax = lambda: 1200
+    FlirCamera(cam, FakePySpin(), CLOCK)
+    names = [name for name, _ in cam.log]
+    assert names.index("AcquisitionFrameRateEnable") < names.index("ExposureTime")
+    assert cam.written("AcquisitionFrameRateEnable")[0] is False
+    assert cam.written("BinningHorizontal") == [1]
+    assert cam.written("BinningVertical") == [1]
+    assert cam.written("OffsetX") == [0]
+    assert cam.written("OffsetY") == [0]
+    assert cam.written("Width") == [1920] and cam.written("Height") == [1200]
+    assert names.index("Width") < names.index("ExposureTime")
+
+
+def test_failed_configuration_deinitialises_camera_so_system_closes_cleanly():
+    cam = FakeCamera("21000001")
+    cam.PixelFormat.SetValue = lambda _v: (_ for _ in ()).throw(
+        SpinnakerException("unsupported PixelFormat"))
+    pyspin = FakePySpin([cam])
+    system = FlirSystem(pyspin)
+    cfg = CLOCK.__class__(**{**CLOCK.__dict__, "serial": "21000001"})
+    with pytest.raises(HardwareError, match="PixelFormat"):
+        system.camera(cfg, "cameras.clock")
+    assert not cam.initialised
+    system.close()
+    assert pyspin.system.released

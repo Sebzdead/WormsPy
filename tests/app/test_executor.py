@@ -308,3 +308,15 @@ def test_a_recording_made_by_the_app_opens_in_the_reader(tmp_path):
     store.dispatch(C.StopLive())
     executor.wait_idle()
     executor.close()
+
+
+def test_missing_frames_in_live_view_raise_and_clear_live_drops_alarm(tmp_path):
+    from wormspy.acquisition.pairing import FramePair
+    from wormspy.core.frames import Frame
+    store, _, executor, _ = _app(tmp_path)
+    f = Frame(image=None, device_frame_id=0, capture_ts=1.0)
+    executor._on_pair(FramePair(0, f, None, None))
+    assert any(a.kind == "live_drops" and "bf" in a.message for a in store.state.alarms)
+    executor._on_pair(FramePair(1, f, f, 0))
+    assert not any(a.kind == "live_drops" for a in store.state.alarms)
+    executor.close()

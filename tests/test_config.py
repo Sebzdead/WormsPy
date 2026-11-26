@@ -163,3 +163,26 @@ k_sigma = 6
 def test_bad_tracking_settings_are_rejected_by_name(tmp_path, text, message):
     with pytest.raises(ConfigError, match=message):
         load_config(_write(tmp_path, text))
+
+
+def test_gamepad_axis_and_button_indices_override_defaults(tmp_path):
+    cfg = load_config(_write(tmp_path, """
+[gamepad.axes]
+right_y = 4
+[gamepad.button_indices]
+X = 3
+""")).gamepad
+    assert cfg.axes == {"left_x": 0, "left_y": 1, "right_y": 4}
+    assert cfg.button_indices == {"A": 0, "B": 1, "X": 3, "Y": 3}
+
+
+@pytest.mark.parametrize(("text", "message"), [
+    ("[gamepad.axes]\nright_x = 2", "unknown key"),
+    ("[gamepad.axes]\nleft_x = -1", "non-negative integer"),
+    ("[gamepad.axes]\nleft_y = true", "non-negative integer"),
+    ("[gamepad.button_indices]\nX = -2", "non-negative integer"),
+    ("[gamepad.unknown]\nx = 1", "unknown section"),
+])
+def test_invalid_gamepad_index_overrides_are_rejected(tmp_path, text, message):
+    with pytest.raises(ConfigError, match=message):
+        load_config(_write(tmp_path, text))

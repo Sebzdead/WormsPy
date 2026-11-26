@@ -97,12 +97,15 @@ def test_hardware_mode_names_the_missing_camera_serial(monkeypatch, tmp_path):
 
 def test_hardware_mode_streams_both_cameras_and_warns_about_a_missing_stage(
         monkeypatch, qtbot, tmp_path):
+    import sys
+    monkeypatch.setitem(sys.modules, "pygame", None)
     pyspin, clock, follower = _fake_pyspin(monkeypatch)
     app = build(["--config", str(_hardware_config(tmp_path))])
     qtbot.addWidget(app.window)
     assert app.window.windowTitle() == "WormsPy"
     assert app.window.left_view.channel == "brightfield"      # behaviour on the left
     assert any(a.kind == "hardware" and "stage" in a.message for a in app.store.state.alarms)
+    assert any(a.kind == "gamepad" and "pygame" in a.message for a in app.store.state.alarms)
     for fid in range(3):
         clock.push(fid, fid * 100_000_000, value=1000)
         follower.push(fid, fid * 100_000_000 + 10_000, value=50)

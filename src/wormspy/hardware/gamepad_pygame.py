@@ -5,6 +5,8 @@ right stick vertical (Z); buttons A=0, B=1, X=2, Y=3. Override them in rig.toml 
 controller reports other indices. Verified manually on the rig, not in CI.
 """
 
+import os
+
 from wormspy.control.gamepad import Gamepad, GamepadState
 
 DEFAULT_AXES = {"left_x": 0, "left_y": 1, "right_y": 3}
@@ -14,16 +16,25 @@ DEFAULT_BUTTONS = {"A": 0, "B": 1, "X": 2, "Y": 3}
 class PygameGamepad(Gamepad):
     def __init__(self, index: int = 0, axes: dict[str, int] | None = None,
                  buttons: dict[str, int] | None = None) -> None:
+        # On Windows, SDL drops joystick events when PySide6 owns the foreground window unless
+        # background events are enabled before pygame/SDL initialises.
+        os.environ.setdefault("SDL_JOYSTICK_ALLOW_BACKGROUND_EVENTS", "1")
         import pygame
         self._pygame = pygame
-        pygame.init()
-        pygame.joystick.init()
         self._index = index
         self._axes = DEFAULT_AXES if axes is None else axes
         self._buttons = DEFAULT_BUTTONS if buttons is None else buttons
+        self._initialized = False
         self._joystick = None
 
+    def _ensure_init(self) -> None:
+        if not self._initialized:
+            self._pygame.display.init()
+            self._pygame.joystick.init()
+            self._initialized = True
+
     def poll(self) -> GamepadState | None:
+        self._ensure_init()
         pg = self._pygame
         pg.event.pump()
         if pg.joystick.get_count() <= self._index:
@@ -37,3 +48,10 @@ class PygameGamepad(Gamepad):
         pressed = frozenset(name for name, i in self._buttons.items()
                             if i < js.get_numbuttons() and js.get_button(i))
         return GamepadState(axes=axes, buttons=pressed)
+
+    def close(self) -> None:
+        if self._initialized:
+            self._pygame.joystick.quit()
+            self._pygame.display.quit()
+            self._initialized = False
+            self._joystick = None

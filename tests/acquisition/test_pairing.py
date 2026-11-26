@@ -100,3 +100,12 @@ def test_the_frame_index_of_a_device_frame_id_is_known_once_acquisition_started(
     pairer.add_clock(_f(100))
     assert pairer.index_of(100) == 0 and pairer.index_of(107) == 7
     assert pairer.index_of(99) is None           # before the first frame: not in this run
+
+
+def test_silent_follower_drops_once_clock_advances_past_max_lag():
+    pairer = FramePairer(max_lag=3)
+    out = []
+    for i in range(4):
+        out += pairer.add_clock(_f(i))
+    # clock_max = 3, follower_max = None -> frame 0 is 3 behind clock_max, so emitted as drop
+    assert _summary(out) == [(0, 0, None)]

@@ -85,7 +85,7 @@ def _sim_rig(config: RigConfig, speed: float) -> SimRigHandle:
 def _gamepad(config: RigConfig, stage, store) -> GamepadController | None:
     try:
         from wormspy.hardware.gamepad_pygame import PygameGamepad
-        pad = PygameGamepad()
+        pad = PygameGamepad(axes=config.gamepad.axes, buttons=config.gamepad.button_indices)
     except ImportError:
         return None
     controller = GamepadController(pad, stage, store.dispatch, config.gamepad.sticks,
@@ -140,18 +140,24 @@ def build(argv: list[str]) -> App:
     except ValueError as exc:                  # ConfigError names the offending key
         raise SystemExit(f"wormspy: {exc}") from exc
     rig = _sim_rig(config, args.sim_speed) if args.sim else _hardware_rig(config)
-    warnings = list(getattr(rig, "warnings", ()))
+    alarms = [("hardware", w) for w in getattr(rig, "warnings", ())]
     try:
         presets = load_presets(config.paths.presets, rig.settings)
     except ValueError as exc:
         presets = ((DEFAULT_PRESET, rig.settings),)
-        warnings.append(f"{exc}. Only the Default preset is available.")
+        alarms.append(("presets", f"{exc}. Only the Default preset is available."))
     store = StateStore(AppState(camera_settings=rig.settings, preset=DEFAULT_PRESET,
                                 presets=presets))
     hub = FrameHub()
-    for warning in warnings:
-        store.dispatch(E.AlarmRaised(kind="hardware", message=warning))
     gamepad = _gamepad(config, rig.stage, store)
+    if not args.sim and gamepad is None:
+        alarms.append((
+            "gamepad",
+            ("No gamepad support (pygame is not installed; run `uv sync --extra gamepad` "
+             "and launch with `uv run --no-sync wormspy`)."),
+        ))
+    for kind, message in alarms:
+        store.dispatch(E.AlarmRaised(kind=kind, message=message))
     executor = Executor(store, rig, hub, data_root=config.paths.data_root,
                         calibration_path=config.paths.calibration,
                         presets_path=config.paths.presets,

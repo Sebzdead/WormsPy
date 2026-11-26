@@ -26,13 +26,15 @@ is in [recording-format.md](recording-format.md), and the one-off hardware check
   transmitted light they show dark in brightfield and bright in fluorescence.
 
 ### Installing (once per PC)
-1. Install the Spinnaker SDK from Teledyne FLIR, and [uv](https://docs.astral.sh/uv/).
+1. Install the Spinnaker SDK (4.x for Python 3.12) from Teledyne FLIR, and [uv](https://docs.astral.sh/uv/).
 2. In the WormsPy folder, run:
    ```
-   uv sync --extra zaber --extra gamepad
+   uv sync --extra zaber --extra gamepad --extra analysis
    uv pip install spinnaker_python-<version>.whl
    ```
-   The wheel ships with the Spinnaker SDK and must match your Python version.
+   The wheel ships with the Spinnaker SDK and must match your Python version (`cp312`). Use
+   `--no-sync` with `uv run` afterwards so `uv` does not uninstall `spinnaker_python` or the
+   optional extras.
 3. Copy `config/rig.example.toml` to `config/rig.toml` and edit it (next section).
 
 ### Configuring the rig: `config/rig.toml`
@@ -61,7 +63,7 @@ to learn the controls.
 ## 2. Starting WormsPy
 
 1. Close **SpinView** and **Zaber Launcher**. Each holds the devices exclusively.
-2. Run `uv run wormspy` from the WormsPy folder.
+2. Run `uv run --no-sync wormspy` from the WormsPy folder (or `.venv\Scripts\wormspy` on Windows).
 
 If a camera is missing, WormsPy stops with a message naming the serial number it expected and
 the ones it found. If the stage is missing, WormsPy still starts, so you can image, but a red

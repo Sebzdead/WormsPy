@@ -56,8 +56,14 @@ class Executor:
         self._recorder: Recorder | None = None
         self._recorder_lock = threading.Lock()
         self._pairing_alarmed = False
+        self._live_drop_alarmed = False
         self._effects: queue.Queue = queue.Queue()
-        self.poller = StagePoller(rig.stage, rig.now)   # runs for the app's lifetime
+        self.poller = StagePoller(
+            rig.stage, rig.now,
+            on_error=lambda reason: self._store.dispatch(
+                E.AlarmRaised(kind="stage_error", message=f"Stage read error: {reason}")),
+            on_recover=lambda: self._store.dispatch(E.AlarmCleared(kind="stage_error")),
+        )   # runs for the app's lifetime
         self.poller.start()
         self._handlers = {
             X.StartAcquisition: self._start_acquisition,
@@ -107,6 +113,7 @@ class Executor:
     def _start_acquisition(self, _: X.StartAcquisition) -> None:
         rig = self._rig
         self._pairing_alarmed = False
+        self._live_drop_alarmed = False
         self._loop = AcquisitionLoop(rig.clock_camera, rig.follower_camera,
                                      rig.clock_channel.name, rig.follower_channel.name,
                                      self._hub, on_pair=self._on_pair,
@@ -132,6 +139,25 @@ class Executor:
             recorder = self._recorder
         if recorder is not None:
             recorder.submit(pair)
+        else:
+            self._check_live_drops(pair)
+
+    def _check_live_drops(self, pair: FramePair) -> None:
+        if pair.clock is None or pair.follower is None:
+            if not self._live_drop_alarmed:
+                self._live_drop_alarmed = True
+                if pair.clock is None and pair.follower is None:
+                    missing = "clock and follower"
+                elif pair.clock is None:
+                    missing = self._rig.clock_channel.name
+                else:
+                    missing = self._rig.follower_channel.name
+                self._store.dispatch(E.AlarmRaised(
+                    kind="live_drops",
+                    message=f"Missing frames on {missing} camera — check USB and trigger cable."))
+        elif self._live_drop_alarmed:
+            self._live_drop_alarmed = False
+            self._store.dispatch(E.AlarmCleared(kind="live_drops"))
 
     def _check_pairing(self, pair: FramePair) -> None:
         """Paired frames are exposed together, so their capture times agree to within the

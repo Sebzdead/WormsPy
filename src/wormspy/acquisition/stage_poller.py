@@ -28,7 +28,9 @@ class StageSample:
 
 class StagePoller:
     def __init__(self, stage: Stage, clock: Callable[[], float], rate_hz: float = 50.0,
-                 history_s: float = 10.0) -> None:
+                 history_s: float = 10.0,
+                 on_error: Callable[[str], None] | None = None,
+                 on_recover: Callable[[], None] | None = None) -> None:
         self._stage = stage
         self._clock = clock
         self._interval_s = 1.0 / rate_hz
@@ -36,6 +38,9 @@ class StagePoller:
         self._lock = threading.Lock()
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
+        self._on_error = on_error
+        self._on_recover = on_recover
+        self._failing = False
 
     def __len__(self) -> int:
         with self._lock:
@@ -80,7 +85,17 @@ class StagePoller:
 
     def _run(self) -> None:
         while not self._stop.is_set():
-            self.sample_once()
+            try:
+                self.sample_once()
+                if self._failing:
+                    self._failing = False
+                    if self._on_recover is not None:
+                        self._on_recover()
+            except Exception as exc:  # noqa: BLE001 - surface error without killing poller
+                if not self._failing:
+                    self._failing = True
+                    if self._on_error is not None:
+                        self._on_error(f"{type(exc).__name__}: {exc}")
             self._stop.wait(self._interval_s)
 
 

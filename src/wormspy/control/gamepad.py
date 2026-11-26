@@ -62,6 +62,7 @@ class GamepadController:
         self._sent = {"x": 0.0, "y": 0.0, "z": 0.0}
         self._pressed: frozenset[str] = frozenset()
         self._connected = True
+        self._failing = False
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
 
@@ -101,9 +102,23 @@ class GamepadController:
             self._thread.join()
 
     def _run(self) -> None:
-        while not self._stop.is_set():
-            self.step()
-            self._stop.wait(self._interval_s)
+        try:
+            while not self._stop.is_set():
+                try:
+                    self.step()
+                    if self._failing:
+                        self._failing = False
+                        self._dispatch(E.AlarmCleared(kind="gamepad_error"))
+                except Exception as exc:  # noqa: BLE001 - surface error without killing loop
+                    if not self._failing:
+                        self._failing = True
+                        self._dispatch(E.AlarmRaised(
+                            kind="gamepad_error", message=f"Gamepad/stage error: {exc}"))
+                self._stop.wait(self._interval_s)
+        finally:
+            close = getattr(self._gamepad, "close", None)
+            if close is not None:
+                close()
 
     def _shape(self, value: float) -> float:
         magnitude = (abs(value) - self._sticks.deadzone) / (1.0 - self._sticks.deadzone)

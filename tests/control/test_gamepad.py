@@ -135,3 +135,33 @@ def test_reconnecting_clears_the_alarm():
 
 def test_state_defaults_are_neutral():
     assert GamepadState().axes == {} and GamepadState().buttons == frozenset()
+
+
+def test_transient_error_raises_alarm_recovers_and_closes_gamepad():
+    import time
+    pad, stage, dispatched = SimGamepad(), SpyStage(), []
+    fail = True
+    closed = []
+    pad.close = lambda: closed.append(True)
+
+    def flaky(_axis, _v):
+        if fail:
+            raise OSError("serial write failed")
+
+    stage.move_velocity_um_s = flaky
+    pad.set(axes={"left_x": 1.0})
+    ctl = GamepadController(pad, stage, dispatched.append, STICKS, rate_hz=100.0)
+    ctl.start()
+    deadline = time.monotonic() + 2
+    while not any(isinstance(d, E.AlarmRaised) and d.kind == "gamepad_error"
+                  for d in dispatched) and time.monotonic() < deadline:
+        time.sleep(0.01)
+    fail = False
+    deadline = time.monotonic() + 2
+    while not any(isinstance(d, E.AlarmCleared) and d.kind == "gamepad_error"
+                  for d in dispatched) and time.monotonic() < deadline:
+        time.sleep(0.01)
+    ctl.stop()
+    assert [d for d in dispatched if isinstance(d, E.AlarmRaised)] == [
+        E.AlarmRaised(kind="gamepad_error", message="Gamepad/stage error: serial write failed")]
+    assert closed == [True]

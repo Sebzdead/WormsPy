@@ -28,7 +28,10 @@ class FramePair:
 
 
 class FramePairer:
-    def __init__(self) -> None:
+    def __init__(self, max_lag: int = 8) -> None:
+        if max_lag < 1:
+            raise ValueError("max_lag must be >= 1")
+        self._max_lag = max_lag
         self._origin: int | None = None      # device id of frame_index 0
         self._next_index = 0
         self._clock: dict[int, Frame] = {}
@@ -72,8 +75,10 @@ class FramePairer:
         pairs = []
         while self._origin is not None:
             device_id = self._origin + self._next_index
-            if not (_resolved(self._clock, self._clock_max, device_id)
-                    and _resolved(self._follower, self._follower_max, device_id)):
+            if not (_resolved(self._clock, self._clock_max, device_id,
+                              self._follower_max, self._max_lag)
+                    and _resolved(self._follower, self._follower_max, device_id,
+                                  self._clock_max, self._max_lag)):
                 break
             pairs.append(self._pop(device_id))
         return pairs
@@ -98,5 +103,8 @@ def _max(current: int | None, value: int) -> int:
     return value if current is None else max(current, value)
 
 
-def _resolved(frames: dict[int, Frame], max_seen: int | None, device_id: int) -> bool:
-    return device_id in frames or (max_seen is not None and max_seen > device_id)
+def _resolved(frames: dict[int, Frame], max_seen: int | None, device_id: int,
+              other_max: int | None = None, max_lag: int = 8) -> bool:
+    return (device_id in frames
+            or (max_seen is not None and max_seen > device_id)
+            or (other_max is not None and other_max - device_id >= max_lag))

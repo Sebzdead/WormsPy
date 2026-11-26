@@ -91,3 +91,29 @@ def test_the_thread_pairs_frames_as_the_rig_produces_them():
         time.sleep(0.01)
     loop.stop()
     assert [p.frame_index for p in pairs] == [0, 1, 2, 3, 4]
+
+
+class _BlockingFollower(Camera):
+    def read(self):
+        time.sleep(0.2)
+
+    def is_open(self):
+        return True
+
+    def release(self):
+        pass
+
+
+def test_a_blocking_follower_does_not_starve_the_clock_camera():
+    rig, pairs, hub = _rig(), [], FrameHub()
+    loop = AcquisitionLoop(rig.clock_camera, _BlockingFollower(), "gcamp", "bf",
+                           hub, on_pair=pairs.append)
+    loop.start()
+    for _ in range(5):
+        rig.tick()
+    deadline = time.monotonic() + 0.15
+    while (hub.latest("gcamp") is None or hub.latest("gcamp").device_frame_id < 4) \
+            and time.monotonic() < deadline:
+        time.sleep(0.005)
+    assert hub.latest("gcamp") is not None and hub.latest("gcamp").device_frame_id == 4
+    loop.stop()
