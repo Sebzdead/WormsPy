@@ -12,6 +12,7 @@ import json
 import queue
 import threading
 from collections.abc import Callable
+from dataclasses import replace
 from pathlib import Path
 
 from wormspy.acquisition.loop import AcquisitionLoop
@@ -38,7 +39,8 @@ class Executor:
                  calibration_path: Path | None = None, presets_path: Path | None = None,
                  recorder_queue_size: int = 64,
                  estimators: dict | None = None, servo: ServoConfig | None = None,
-                 override: Callable[[], bool] = lambda: False) -> None:
+                 override: Callable[[], bool] = lambda: False,
+                 reset_gamepad: Callable[[], None] | None = None) -> None:
         self._store = store
         self._rig = rig
         self._hub = hub
@@ -51,6 +53,7 @@ class Executor:
             "dark_object": DarkObject(), "bright_marker": BrightMarker()}
         self._servo = servo if servo is not None else ServoConfig()
         self._override = override          # True while the joystick is moving XY
+        self._reset_gamepad_cb = reset_gamepad
         self._tracker: Tracker | None = None
         self._loop: AcquisitionLoop | None = None
         self._recorder: Recorder | None = None
@@ -79,6 +82,8 @@ class Executor:
             X.SetTracker: self._set_tracker,
             X.ApplyCameraSettings: self._apply_camera_settings,
             X.WritePresets: self._write_presets,
+            X.ResetGamepad: self._reset_gamepad,
+            X.MoveXYTo: self._move_xy_to,
         }
         threading.Thread(target=self._run, name="executor", daemon=True).start()
         store.on_effect(self._effects.put)
@@ -225,7 +230,8 @@ class Executor:
                             on_event=self._store.dispatch, queue_size=self._recorder_queue_size,
                             extra={"camera": self._camera_snapshot()},
                             telemetry=StageTelemetry(self.poller,
-                                                     lambda: self._store.state.focus_z_um))
+                                                     lambda: self._store.state.focus_z_um),
+                            duration_s=effect.duration_s)
         try:
             recorder.start()
         except OSError as exc:
@@ -233,6 +239,11 @@ class Executor:
             return
         with self._recorder_lock:
             self._recorder = recorder
+
+    def recording_elapsed_s(self) -> float | None:
+        with self._recorder_lock:
+            recorder = self._recorder
+        return None if recorder is None else recorder.elapsed_s
 
     def _close_recording(self, _: X.CloseRecording) -> None:
         with self._recorder_lock:
@@ -309,6 +320,8 @@ class Executor:
             return
         channel = self._resolve_channel(effect.source_channel)
         estimator = self._estimators.get(effect.estimator)
+        if isinstance(estimator, DarkObject) and estimator.polarity != effect.polarity:
+            estimator = replace(estimator, polarity=effect.polarity)
         camera = None if self._calibration is None else self._calibration.cameras.get(channel)
         if channel is None or estimator is None or camera is None:
             missing = ("channel" if channel is None else
@@ -366,3 +379,15 @@ class Executor:
             recorder = self._recorder
         if recorder is not None:
             recorder.log_tracking(**row)
+
+    def _reset_gamepad(self, _: X.ResetGamepad) -> None:
+        if self._reset_gamepad_cb is None:
+            self._store.dispatch(E.AlarmRaised(
+                kind="gamepad", message="No gamepad controller is available to reset."))
+            return
+        self._reset_gamepad_cb()
+        self._store.dispatch(E.AlarmCleared(kind="gamepad_error"))
+
+    def _move_xy_to(self, effect: X.MoveXYTo) -> None:
+        self._rig.stage.move_absolute_um("x", effect.x_um)
+        self._rig.stage.move_absolute_um("y", effect.y_um)

@@ -188,3 +188,12 @@ def test_failed_configuration_deinitialises_camera_so_system_closes_cleanly():
     assert not cam.initialised
     system.close()
     assert pyspin.system.released
+
+
+def test_configure_as_overview_sets_newest_only_and_free_run_fps():
+    camera, cam = _camera()
+    camera.configure_as_overview(fps=1.0)
+    assert cam.written("TriggerMode")[-1] == "TriggerMode_Off"
+    assert cam.written("AcquisitionFrameRate") == [1.0]
+    assert cam.written("TLStream.StreamBufferHandlingMode")[-1] == (
+        "StreamBufferHandlingMode_NewestOnly")

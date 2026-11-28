@@ -120,3 +120,33 @@ def test_new_settings_are_written_in_an_order_the_camera_accepts(tmp_path):
     rig.apply_settings(slower)
     names = [name for name, _ in clock.log]
     assert names.index("AcquisitionFrameRate") < names.index("ExposureTime")   # slow down first
+
+
+def test_optional_overview_camera_opens_or_warns_gracefully(tmp_path):
+    path = tmp_path / "rig.toml"
+    path.write_text("""
+[cameras.clock]
+serial = "21000001"
+[cameras.follower]
+serial = "21000002"
+[overview]
+serial = "23251773"
+""")
+    cfg = load_config(path)
+    clock = FakeCamera("21000001", shape=(120, 192), dtype=np.uint16)
+    follower = FakeCamera("21000002", shape=(120, 192), dtype=np.uint8)
+    overview = FakeCamera("23251773", shape=(300, 300), dtype=np.uint8)
+    rig = open_rig(cfg, pyspin=FakePySpin([clock, follower, overview]),
+                   stage_connector=lambda _: NullStage())
+    assert rig.overview_camera is not None
+    assert overview.written("AcquisitionFrameRate") == [1.0]
+    rig.close()
+    assert not overview.initialised
+
+    # Missing optional overview camera produces a warning without aborting startup
+    c2 = FakeCamera("21000001", shape=(120, 192), dtype=np.uint16)
+    f2 = FakeCamera("21000002", shape=(120, 192), dtype=np.uint8)
+    rig2 = open_rig(cfg, pyspin=FakePySpin([c2, f2]), stage_connector=lambda _: NullStage())
+    assert rig2.overview_camera is None
+    assert any("overview" in w.lower() for w in rig2.warnings)
+    rig2.close()

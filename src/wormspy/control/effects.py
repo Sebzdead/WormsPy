@@ -26,6 +26,7 @@ class CreateSession:
 class OpenRecording:
     session_dir: str
     name: str
+    duration_s: float | None = None
 
 
 @dataclass(frozen=True)
@@ -38,6 +39,7 @@ class SetTracker:
     enabled: bool
     estimator: str
     source_channel: str
+    polarity: str = "dark"
 
 
 @dataclass(frozen=True)
@@ -78,3 +80,14 @@ class WritePresets:
 @dataclass(frozen=True)
 class RunCalibration:
     pass
+
+
+@dataclass(frozen=True)
+class ResetGamepad:
+    pass
+
+
+@dataclass(frozen=True)
+class MoveXYTo:
+    x_um: float
+    y_um: float

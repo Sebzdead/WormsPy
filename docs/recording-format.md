@@ -82,6 +82,9 @@ files may hold a frame or two fewer than `frames.csv`: use the shortest.
 ```json
 {
   "frames": 18000, "first_frame_index": 612, "last_frame_index": 18611, "fps": 10.0,
+  "started_utc": "2026-09-28T12:03:45+00:00",
+  "target_duration_s": 1800.0,
+  "stopped_by": "timer",
   "dropped": {"gcamp": 0, "brightfield": 1, "writer backlog": 0},
   "failed": null,
   "channels": {"gcamp": {"role": "fluorescence", "file": "gcamp.tif"},
@@ -140,11 +143,10 @@ with session.open(1) as rec:                      # rec-001
     rec.plate_um("brightfield", (960, 600), rec.index[100])
 ```
 
-**Example analysis:** `python -m wormspy.analysis.segmentation <rec-NNN or session folder>
-[--overlay]` follows one bright neuron in the calcium channel and writes
-`analysis/<channel>_segmentation.csv` (one row per frame_index: centroid, brightest-pixel
-signal, local background, and the neuron's plate position) into each recording folder. It is the
-v1 `Segmentation.py`, ported; its docstring lists what changed.
+**Example analysis:**
+- `python -m wormspy.analysis.segmentation <rec-NNN or session folder> [--overlay]` follows one bright neuron in the calcium channel and writes `analysis/<channel>_segmentation.csv`.
+- `python -m wormspy.analysis.trajectory <rec-NNN or session folder> [--hdf5]` reconstructs world-coordinate trajectories and 49-point skeletons (`worm_x_um`, `worm_y_um`, `speed_um_s`, `skeletons_world.npz`) and exports Tierpsy-compatible files (`stage_position.csv`, optional `_skeletons.hdf5`).
+- `python -m wormspy.analysis.ria_bridge export|join` links WormsPy recordings directly with `analysis_code/RIA-Segmentation_withBlurdection-main/` (exporting stacks/JPGs + frame map, and joining `head_angles.csv` / `roi_intensity.csv` back onto `frames.csv` and plate µm).
 
 **Without WormsPy:**
 - **Fiji:** open `gcamp.tif` directly; it is a plain, uncompressed multi-page BigTIFF. FFV1

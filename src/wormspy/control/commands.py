@@ -37,6 +37,11 @@ class ToggleRecording:
 
 
 @dataclass(frozen=True)
+class SetRecordingDuration:
+    duration_s: float | None
+
+
+@dataclass(frozen=True)
 class Shutdown:
     pass
 
@@ -55,6 +60,7 @@ class ToggleTracking:
 class SelectEstimator:
     name: str
     source_channel: str
+    polarity: str | None = None
 
 
 @dataclass(frozen=True)
@@ -110,3 +116,15 @@ class AcknowledgeAlarm:
 @dataclass(frozen=True)
 class Calibrate:
     """Run the stage-to-camera calibration routine (ADR 0009). Moves the stage."""
+
+
+@dataclass(frozen=True)
+class ResetGamepad:
+    """Reinitialize the gamepad controller without restarting WormsPy."""
+
+
+@dataclass(frozen=True)
+class MoveStageXY:
+    """Slew XY stage to absolute plate coordinates (from global-view overview)."""
+    x_um: float
+    y_um: float

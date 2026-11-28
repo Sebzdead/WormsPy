@@ -320,3 +320,50 @@ def test_missing_frames_in_live_view_raise_and_clear_live_drops_alarm(tmp_path):
     executor._on_pair(FramePair(1, f, f, 0))
     assert not any(a.kind == "live_drops" for a in store.state.alarms)
     executor.close()
+
+
+def test_timed_recording_auto_stops_and_finalises(tmp_path):
+    store, _, executor, _ = _app(tmp_path, speed=20.0)
+    store.dispatch(C.StartLive())
+    store.dispatch(C.NewSession(metadata={"animal_id": "w1"}))
+    _wait(lambda: store.state.session_dir is not None)
+    store.dispatch(C.SetRecordingDuration(duration_s=0.3))
+    store.dispatch(C.StartRecording())
+    _wait(lambda: store.state.mode is Mode.LIVE and store.state.next_recording == 2)
+    executor.wait_idle()
+    rec = Path(store.state.session_dir) / "rec-001"
+    summary = json.loads((rec / "recording.json").read_text())
+    assert summary["frames"] == 6
+    assert summary["stopped_by"] == "timer"
+    store.dispatch(C.StopLive())
+    executor.wait_idle()
+    executor.close()
+
+
+def test_reset_gamepad_invokes_callback_or_raises_alarm(tmp_path):
+    calls = []
+    store, handle_hub, executor, handle = _app(tmp_path)
+    store.dispatch(C.ResetGamepad())
+    executor.wait_idle()
+    assert any(a.kind == "gamepad" for a in store.state.alarms)
+    executor.close()
+
+    store2 = StateStore(AppState())
+    ex2 = Executor(store2, handle, handle_hub, data_root=tmp_path / "data2",
+                   reset_gamepad=lambda: calls.append(True))
+    store2.dispatch(C.ResetGamepad())
+    ex2.wait_idle()
+    assert calls == [True]
+    ex2.close()
+
+
+def test_move_stage_xy_slews_stage_within_safe_range(tmp_path):
+    store, _, executor, handle = _app(tmp_path, speed=20.0)
+    store.dispatch(C.StartLive())
+    store.dispatch(C.MoveStageXY(x_um=3000.0, y_um=4000.0))
+    executor.wait_idle()
+    _wait(lambda: (handle.stage.position_um("x"), handle.stage.position_um("y"))
+          == (3000.0, 4000.0))
+    store.dispatch(C.StopLive())
+    executor.wait_idle()
+    executor.close()

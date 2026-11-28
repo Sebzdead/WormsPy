@@ -34,9 +34,11 @@ class AppState:
     session_dir: str | None = None
     next_recording: int = 1           # number the next Recording in this session gets
     recording_name: str | None = None  # e.g. "rec-001" while RECORDING
+    recording_duration_s: float | None = None
     tracking: TrackingStatus = TrackingStatus.OFF
     estimator: str = "dark_object"
     source_channel: str = "behaviour"
+    polarity: str = "dark"
     focus_z_um: float | None = None   # stored by Set Focus (ADR 0002)
     camera_settings: CameraSettings | None = None   # applied to the cameras (ADR 0006)
     preset: str | None = None         # the preset camera_settings match; None once edited

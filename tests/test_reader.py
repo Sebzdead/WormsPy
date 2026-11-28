@@ -170,3 +170,21 @@ def test_the_recording_json_is_the_source_of_channel_files(tmp_path):
     path = _record(tmp_path)
     info = json.loads((path / "recording.json").read_text())
     assert info["channels"]["gcamp"]["file"] == "gcamp.tif"
+
+
+def test_plate_um_batch_matches_scalar_and_handles_nans(tmp_path):
+    with open_recording(_record(tmp_path, count=4)) as rec:
+        assert rec.microns_per_pixel("gcamp") == pytest.approx(2.0, abs=1e-6)
+        assert rec.microns_per_pixel("brightfield") == pytest.approx(2.5, abs=1e-6)
+        pts2 = np.array([[10.0, 12.0], [np.nan, np.nan], [20.0, 5.0], [15.0, 10.0]])
+        out2 = rec.plate_um_batch("brightfield", pts2)
+        assert out2.shape == (4, 2)
+        assert np.isnan(out2[1]).all()
+        for row_idx, f_idx in ((0, 50), (2, 52), (3, 53)):
+            assert tuple(out2[row_idx]) == pytest.approx(
+                rec.plate_um("brightfield", pts2[row_idx], f_idx), abs=1e-6)
+
+        pts3 = np.stack([pts2, pts2 + 2.0], axis=1)
+        out3 = rec.plate_um_batch("gcamp", pts3)
+        assert out3.shape == (4, 2, 2)
+        assert tuple(out3[0, 1]) == pytest.approx(rec.plate_um("gcamp", pts3[0, 1], 50), abs=1e-6)

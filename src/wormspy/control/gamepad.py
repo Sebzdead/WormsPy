@@ -38,6 +38,9 @@ class Gamepad:
     def poll(self) -> GamepadState | None:
         raise NotImplementedError
 
+    def reset(self) -> None:
+        """Reinitialize the underlying input device after a drop or reconnect."""
+
 
 @dataclass(frozen=True)
 class StickConfig:
@@ -63,6 +66,7 @@ class GamepadController:
         self._pressed: frozenset[str] = frozenset()
         self._connected = True
         self._failing = False
+        self._reset_requested = threading.Event()
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
 
@@ -70,7 +74,19 @@ class GamepadController:
     def xy_active(self) -> bool:
         return self._sent["x"] != 0.0 or self._sent["y"] != 0.0
 
+    def reset(self) -> None:
+        """Request a thread-safe controller reinitialization on the next poll tick."""
+        self._reset_requested.set()
+
     def step(self) -> None:
+        if self._reset_requested.is_set():
+            self._reset_requested.clear()
+            for axis, velocity in self._sent.items():
+                if velocity != 0.0:
+                    self._stage.stop(axis)
+                    self._sent[axis] = 0.0
+            self._pressed = frozenset()
+            self._gamepad.reset()
         state = self._gamepad.poll()
         if state is None:
             self._on_disconnected()

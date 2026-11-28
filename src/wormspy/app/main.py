@@ -18,8 +18,11 @@ from wormspy.control import commands as C
 from wormspy.control import events as E
 from wormspy.control.gamepad import GamepadController
 from wormspy.core.frames import FrameHub
+from wormspy.overview.calibration import OverviewCalibration
+from wormspy.overview.worker import OverviewWorker
 from wormspy.presets import DEFAULT_PRESET, load_presets
 from wormspy.sim.handle import SimRigHandle
+from wormspy.sim.overview import SimOverviewCamera
 from wormspy.sim.render import ImageGeometry
 from wormspy.sim.rig import ChannelSpec, SimRig
 from wormspy.sim.stage import SimStage
@@ -42,6 +45,8 @@ class App:
     rig: object                    # HardwareRig or SimRigHandle
     gamepad: GamepadController | None = None
     slide_action: object = None
+    overview_worker: OverviewWorker | None = None
+    overview_window: object = None
     _closed: bool = field(default=False, repr=False)
 
     def shutdown(self) -> None:
@@ -49,6 +54,10 @@ class App:
         if self._closed:
             return
         self._closed = True
+        if self.overview_window is not None:
+            self.overview_window.close()
+        if self.overview_worker is not None:
+            self.overview_worker.stop()
         self.store.dispatch(C.Shutdown())
         self.executor.wait_idle()
         if self.gamepad is not None:
@@ -78,8 +87,9 @@ def _sim_rig(config: RigConfig, speed: float) -> SimRigHandle:
     rig = SimRig(worm, stage, ChannelSpec(SIM_GEOMETRY, "fluorescence", noise_sigma=300.0),
                  ChannelSpec(SIM_BEHAVIOUR_GEOMETRY, "behaviour", noise_sigma=4.0),
                  fps=config.cameras.settings.fps)
+    overview = SimOverviewCamera(rig, safe_range_um=safe, fps=max(2.0, config.overview.fps))
     return SimRigHandle(rig, clock_name="gcamp", follower_name="brightfield", speed=speed,
-                        settings=config.cameras.settings)
+                        settings=config.cameras.settings, overview_camera=overview)
 
 
 def _gamepad(config: RigConfig, stage, store) -> GamepadController | None:
@@ -132,6 +142,7 @@ def build(argv: list[str]) -> App:
     from wormspy.ui import theme
     from wormspy.ui.bridge import StateBridge
     from wormspy.ui.main_window import MainWindow, StatusInfo
+    from wormspy.ui.overview_window import OverviewWindow
 
     theme.apply(QApplication.instance())
 
@@ -146,8 +157,14 @@ def build(argv: list[str]) -> App:
     except ValueError as exc:
         presets = ((DEFAULT_PRESET, rig.settings),)
         alarms.append(("presets", f"{exc}. Only the Default preset is available."))
+    ordered_channels = sorted((rig.clock_channel, rig.follower_channel),
+                              key=lambda ch: ch.role != "behaviour")
+    channel_sources = tuple((ch.name, _label(ch.name), ch.role) for ch in ordered_channels)
+    default_source = next((ch.name for ch in ordered_channels if ch.role == "behaviour"),
+                          rig.clock_channel.name)
     store = StateStore(AppState(camera_settings=rig.settings, preset=DEFAULT_PRESET,
-                                presets=presets))
+                                presets=presets, source_channel=default_source,
+                                polarity=config.tracking.dark_object.polarity))
     hub = FrameHub()
     gamepad = _gamepad(config, rig.stage, store)
     if not args.sim and gamepad is None:
@@ -164,20 +181,64 @@ def build(argv: list[str]) -> App:
                         estimators={"dark_object": config.tracking.dark_object,
                                     "bright_marker": config.tracking.bright_marker},
                         servo=config.tracking.servo,
-                        override=(lambda: gamepad.xy_active) if gamepad else (lambda: False))
+                        override=(lambda: gamepad.xy_active) if gamepad else (lambda: False),
+                        reset_gamepad=gamepad.reset if gamepad else None)
 
     def status() -> StatusInfo:
         sample = executor.poller.latest()
         xyz = None if sample is None else (sample.x_um, sample.y_um, sample.z_um)
-        return StatusInfo(xyz_um=xyz, disk_free_bytes=_disk_free(config.paths.data_root))
+        return StatusInfo(xyz_um=xyz, disk_free_bytes=_disk_free(config.paths.data_root),
+                          recording_elapsed_s=executor.recording_elapsed_s())
 
     if args.sim:
         left, right = ("brightfield", "Brightfield"), ("gcamp", "Fluorescence")
     else:
         left, right = _views(rig)
     labels = (_label(rig.clock_channel.name), _label(rig.follower_channel.name))
+
+    overview_worker: OverviewWorker | None = None
+    initial_overview_calib: OverviewCalibration | None = None
+    overview_cam = getattr(rig, "overview_camera", None)
+    if overview_cam is not None:
+        overview_worker = OverviewWorker(
+            overview_cam, config.overview,
+            on_error=lambda reason: store.dispatch(
+                E.AlarmRaised(kind="overview", message=f"Overview camera error: {reason}")),
+            on_recover=lambda: store.dispatch(E.AlarmCleared(kind="overview")),
+        )
+        if config.paths.overview_calibration.exists():
+            try:
+                initial_overview_calib = OverviewCalibration.load(config.paths.overview_calibration)
+            except (OSError, ValueError, KeyError) as exc:
+                store.dispatch(E.AlarmRaised(
+                    kind="overview", message=f"Could not load overview calibration: {exc}"))
+        elif hasattr(overview_cam, "sim_calibration"):
+            initial_overview_calib = overview_cam.sim_calibration()
+
+    app = App(window=None, store=store, executor=executor, rig=rig, gamepad=gamepad,
+              overview_worker=overview_worker)
+
+    def stage_xy() -> tuple[float, float] | None:
+        sample = executor.poller.latest()
+        return None if sample is None else (sample.x_um, sample.y_um)
+
+    def open_overview() -> None:
+        if overview_worker is None:
+            return
+        if app.overview_window is None:
+            app.overview_window = OverviewWindow(
+                StateBridge(store), overview_worker, stage_position=stage_xy,
+                calibration_path=config.paths.overview_calibration,
+                initial_calibration=initial_overview_calib)
+        app.overview_window.start_overview()
+        app.overview_window.show()
+        app.overview_window.raise_()
+        app.overview_window.activateWindow()
+
     window = MainWindow(StateBridge(store), hub, left=left, right=right, status=status,
-                        overlay=executor.tracking_overlay, camera_labels=labels)
+                        overlay=executor.tracking_overlay, camera_labels=labels,
+                        channel_sources=channel_sources,
+                        on_open_overview=open_overview if overview_worker is not None else None)
     slide = None
     if args.sim:
         window.setWindowTitle("WormsPy — simulated rig")
@@ -187,8 +248,8 @@ def build(argv: list[str]) -> App:
     else:
         window.setWindowTitle("WormsPy")
 
-    app = App(window=window, store=store, executor=executor, rig=rig, gamepad=gamepad,
-              slide_action=slide)
+    app.window = window
+    app.slide_action = slide
     window.closing.connect(app.shutdown)
     return app
 

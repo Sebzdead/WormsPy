@@ -20,6 +20,7 @@ import cv2
 import numpy as np
 
 MAD_TO_SIGMA = 1.4826
+POLARITIES = ("dark", "bright")
 
 
 @dataclass(frozen=True)
@@ -51,12 +52,13 @@ def _smooth_background(image: np.ndarray, sigma_px: float) -> np.ndarray:
 @dataclass(frozen=True)
 class DarkObject:
     name = "dark_object"
-    threshold: float | None = None       # grey levels darker than background; None = automatic
+    threshold: float | None = None       # grey levels darker/brighter than background; None = auto
     k_sigma: float = 4.0                 # the automatic threshold is never below k · noise
     background_sigma_px: float = 150.0   # much larger than the worm's width
     min_area_px: float = 3000.0          # smaller blobs are debris, not a worm
     max_area_px: float | None = None
     downsample: int = 2
+    polarity: str = "dark"               # "dark" (dark on bright) or "bright" (bright on dark)
 
     def contrast_threshold(self, contrast: np.ndarray) -> float:
         """The fixed threshold, or Otsu's on the contrast image floored at k · noise."""
@@ -65,16 +67,19 @@ class DarkObject:
         sample = contrast[::2, ::2]
         median = float(np.median(sample))
         noise = float(np.median(np.abs(sample - median))) * MAD_TO_SIGMA
-        otsu, _ = cv2.threshold(np.clip(sample, 0, 255).astype(np.uint8), 0, 255,
-                                cv2.THRESH_BINARY + cv2.THRESH_OTSU)
-        return max(float(otsu), median + self.k_sigma * max(noise, 0.5))
+        peak = float(np.max(sample))
+        scale = 255.0 / peak if peak > 255.0 else 1.0
+        otsu_u8, _ = cv2.threshold(np.clip(sample * scale, 0, 255).astype(np.uint8), 0, 255,
+                                   cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+        return max(float(otsu_u8) / scale, median + self.k_sigma * max(noise, 0.5))
 
     def __call__(self, image: np.ndarray) -> Estimate:
         height, width = image.shape[:2]
         ds = self.downsample
         small = cv2.resize(image.astype(np.float32), (width // ds, height // ds),
                            interpolation=cv2.INTER_AREA)
-        contrast = _smooth_background(small, self.background_sigma_px / ds) - small
+        bg = _smooth_background(small, self.background_sigma_px / ds)
+        contrast = (bg - small) if self.polarity == "dark" else (small - bg)
         threshold = self.contrast_threshold(contrast)
         mask = (contrast > threshold).astype(np.uint8)
         kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))

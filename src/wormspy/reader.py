@@ -184,12 +184,7 @@ class Recording:
         data = (self.session or {}).get("config", {}).get("calibration")
         return None if data is None else RigCalibration.from_json(data)
 
-    def plate_um(self, channel: str, px, frame_index: int) -> tuple[float, float]:
-        """Where pixel `px` (x, y) of `channel` was on the plate at that frame, in stage µm.
-
-        Uses the stage position interpolated to the frame's capture time and the session's
-        calibration, including the offset between the cameras.
-        """
+    def _calibrated_camera(self, channel: str):
         calibration = self.calibration
         if calibration is None or channel not in calibration.cameras:
             raise ValueError(f"the session has no calibration for {channel!r}")
@@ -197,9 +192,40 @@ class Recording:
         if channel != calibration.reference and camera.origin_px is None:
             raise ValueError(f"{channel} is not registered to {calibration.reference}; "
                              "plate positions from it would be off by the camera offset")
+        return camera
+
+    def microns_per_pixel(self, channel: str) -> float:
+        """Nominal µm/px scale of `channel` from the session calibration."""
+        camera = self._calibrated_camera(channel)
+        return float(1.0 / np.sqrt(abs(float(np.linalg.det(camera.matrix)))))
+
+    def plate_um(self, channel: str, px, frame_index: int) -> tuple[float, float]:
+        """Where pixel `px` (x, y) of `channel` was on the plate at that frame, in stage µm.
+
+        Uses the stage position interpolated to the frame's capture time and the session's
+        calibration, including the offset between the cameras.
+        """
+        camera = self._calibrated_camera(channel)
         row = self.frames.loc[frame_index]
         offset = np.linalg.solve(camera.matrix, np.asarray(px, float) - camera.origin)
         return float(row["x_um"] + offset[0]), float(row["y_um"] + offset[1])
+
+    def plate_um_batch(self, channel: str, pts_px: np.ndarray,
+                       frame_indices=None) -> np.ndarray:
+        """Vectorized conversion of `(N, 2)` or `(N, K, 2)` pixels to plate µm."""
+        camera = self._calibrated_camera(channel)
+        pts = np.asarray(pts_px, dtype=np.float64)
+        if pts.ndim not in (2, 3) or pts.shape[-1] != 2:
+            raise ValueError(f"expected shape (N, 2) or (N, K, 2), got {pts.shape}")
+        indices = self.index if frame_indices is None else frame_indices
+        if len(indices) != pts.shape[0]:
+            raise ValueError(f"frame_indices length ({len(indices)}) != pts length ({pts.shape[0]})")
+        stage_xy = self.frames.loc[indices, ["x_um", "y_um"]].to_numpy(dtype=np.float64)
+        inv_matrix = np.linalg.inv(camera.matrix)
+        offsets = (pts - camera.origin) @ inv_matrix.T
+        if pts.ndim == 3:
+            stage_xy = stage_xy[:, None, :]
+        return stage_xy + offsets
 
 
 def open_recording(path) -> Recording:

@@ -1,0 +1,88 @@
+import cv2
+import numpy as np
+
+
+def Thresh_Light_Background(frame):
+    # clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8, 8))
+    # frame = clahe.apply(frame)
+    blurred_frame = cv2.GaussianBlur(frame, (9, 9), 2)
+
+    # Edge detection
+    edges = cv2.Canny(blurred_frame, 10, 30)
+
+    # Close small gaps in edges
+    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (10, 10))
+    closed = cv2.morphologyEx(edges, cv2.MORPH_CLOSE, kernel, iterations=2)
+
+    # Dilate a bit to make the edges into a solid region.
+    dilated = cv2.dilate(closed, kernel, iterations=1)
+
+    # Find largest contour and draw mask
+    contours, _ = cv2.findContours(dilated, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+
+    mask = np.zeros_like(frame)
+    if contours:
+        c = max(contours, key=cv2.contourArea)
+        cv2.drawContours(mask, [c], -1, 255, thickness=cv2.FILLED)
+
+    # Build a single tiled window showing the pipeline steps
+    steps = [frame, blurred_frame, edges, closed, dilated, mask]
+    bgr_steps = []
+    for img in steps:
+        if img is None:
+            img = np.zeros_like(frame)
+        if len(img.shape) == 2:
+            img_bgr = cv2.cvtColor(img, cv2.COLOR_GRAY2BGR)
+        else:
+            img_bgr = img
+        bgr_steps.append(img_bgr)
+
+    # Make a 2x3 grid: [orig, blurred, edges] / [closed, dilated, mask]
+    row1 = cv2.hconcat(bgr_steps[0:3])
+    row2 = cv2.hconcat(bgr_steps[3:6])
+    pipeline = cv2.vconcat([row1, row2])
+
+    # Resize pipeline to be 10x smaller for compact display
+    scale = 0.4
+    h, w = pipeline.shape[:2]
+    new_w = max(1, int(w * scale))
+    new_h = max(1, int(h * scale))
+    pipeline_small = cv2.resize(pipeline, (new_w, new_h), interpolation=cv2.INTER_AREA)
+    cv2.imshow("pipeline", pipeline_small)
+
+    # thresh = cv2.adaptiveThreshold(
+    #     blurred_frame,
+    #     255,
+    #     cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
+    #     cv2.THRESH_BINARY_INV,
+    #     101,
+    #     2,
+    # )
+
+    # kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
+    # eroded_image = cv2.erode(thresh, kernel, iterations=1)
+    # processed_frame = cv2.dilate(eroded_image, kernel, iterations=1)
+
+    # kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (7, 7))
+    # processed_frame = cv2.morphologyEx(processed_frame, cv2.MORPH_CLOSE, kernel)
+    # return processed_frame
+    return mask
+
+
+cap = cv2.VideoCapture(r"D:\WormSpy_Video\Project_1_08-05-2026_12-43\Project_1_08-05-2026_12-43_L.avi")
+
+while True:
+    ret, frame = cap.read()
+
+    if not ret:
+        break
+
+    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+    processed = Thresh_Light_Background(gray)
+
+    key = cv2.waitKey(30)
+    if key == 27:
+        break
+
+cap.release()
+cv2.destroyAllWindows()

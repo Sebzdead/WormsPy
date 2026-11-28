@@ -1,0 +1,4 @@
+numpy>=1.23
+opencv-python>=4.8
+scipy>=1.10
+scikit-image>=0.23

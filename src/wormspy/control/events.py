@@ -70,3 +70,8 @@ class CameraSettingsApplied:
 @dataclass(frozen=True)
 class CameraSettingsFailed:
     reason: str
+
+
+@dataclass(frozen=True)
+class RecordingDurationReached:
+    """Preset recording duration elapsed; recorder stopped accepting frames."""

@@ -71,7 +71,22 @@ def _start_recording(s: AppState, _: C.StartRecording) -> Transition:
         return _reject(s, "Open a session before recording.")
     name = f"rec-{s.next_recording:03d}"
     return _ok(replace(s, mode=Mode.RECORDING, recording_name=name, recording_drops=0),
-               X.OpenRecording(session_dir=s.session_dir, name=name))
+               X.OpenRecording(session_dir=s.session_dir, name=name,
+                               duration_s=s.recording_duration_s))
+
+
+def _set_recording_duration(s: AppState, cmd: C.SetRecordingDuration) -> Transition:
+    if s.mode is Mode.RECORDING:
+        return _reject(s, "Stop the recording before changing the duration limit.")
+    if cmd.duration_s is not None and cmd.duration_s <= 0:
+        return _reject(s, "Recording duration must be positive.")
+    return _ok(replace(s, recording_duration_s=cmd.duration_s))
+
+
+def _recording_duration_reached(s: AppState, _: E.RecordingDurationReached) -> Transition:
+    if s.mode is not Mode.RECORDING:
+        return _ok(s)
+    return _ok(_end_recording(s, Mode.LIVE), X.CloseRecording())
 
 
 def _stop_recording(s: AppState, _: C.StopRecording) -> Transition:
@@ -112,7 +127,8 @@ def _acquiring(s: AppState) -> bool:
 
 
 def _set_tracker(s: AppState, enabled: bool) -> X.SetTracker:
-    return X.SetTracker(enabled=enabled, estimator=s.estimator, source_channel=s.source_channel)
+    return X.SetTracker(enabled=enabled, estimator=s.estimator, source_channel=s.source_channel,
+                        polarity=s.polarity)
 
 
 def _set_tracking(s: AppState, cmd: C.SetTracking) -> Transition:
@@ -139,7 +155,11 @@ def _tracking_status_changed(s: AppState, ev: E.TrackingStatusChanged) -> Transi
 def _select_estimator(s: AppState, cmd: C.SelectEstimator) -> Transition:
     if s.tracking is not TrackingStatus.OFF:
         return _reject(s, "Turn tracking off before changing the estimator.")
-    return _ok(replace(s, estimator=cmd.name, source_channel=cmd.source_channel))
+    polarity = s.polarity if cmd.polarity is None else cmd.polarity
+    if polarity not in ("dark", "bright"):
+        return _reject(s, f"Unknown polarity {polarity!r}.")
+    return _ok(replace(s, estimator=cmd.name, source_channel=cmd.source_channel,
+                       polarity=polarity))
 
 
 def _set_focus(s: AppState, _: C.SetFocus) -> Transition:
@@ -306,6 +326,19 @@ def _calibration_failed(s: AppState, ev: E.CalibrationFailed) -> Transition:
                            f"Calibration failed: {ev.reason}"))
 
 
+def _reset_gamepad(s: AppState, _: C.ResetGamepad) -> Transition:
+    return _ok(s, X.ResetGamepad())
+
+
+def _move_stage_xy(s: AppState, cmd: C.MoveStageXY) -> Transition:
+    if s.mode is Mode.RECORDING:
+        return _reject(s, "Stop the recording before moving the stage from the global view.")
+    if s.calibrating:
+        return _reject(s, "Wait for the calibration to finish.")
+    return _ok(replace(s, tracking=TrackingStatus.OFF),
+               *_disable_tracker(s), X.MoveXYTo(x_um=cmd.x_um, y_um=cmd.y_um))
+
+
 _HANDLERS: dict[type, Callable[[AppState, object], Transition]] = {
     C.StartLive: _start_live,
     C.StopLive: _stop_live,
@@ -313,6 +346,8 @@ _HANDLERS: dict[type, Callable[[AppState, object], Transition]] = {
     C.StartRecording: _start_recording,
     C.StopRecording: _stop_recording,
     C.ToggleRecording: _toggle_recording,
+    C.SetRecordingDuration: _set_recording_duration,
+    E.RecordingDurationReached: _recording_duration_reached,
     C.Shutdown: _shutdown,
     E.SessionOpened: _session_opened,
     C.SetTracking: _set_tracking,
@@ -339,6 +374,8 @@ _HANDLERS: dict[type, Callable[[AppState, object], Transition]] = {
     C.Calibrate: _calibrate,
     E.CalibrationCompleted: _calibration_completed,
     E.CalibrationFailed: _calibration_failed,
+    C.ResetGamepad: _reset_gamepad,
+    C.MoveStageXY: _move_stage_xy,
 }
 
 

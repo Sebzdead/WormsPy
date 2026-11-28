@@ -32,6 +32,18 @@ def test_sim_mode_builds_a_working_app(qtbot, tmp_path):
     assert app.store.state.mode is Mode.IDLE
 
 
+def test_sim_mode_opens_global_view_window_and_shuts_down_cleanly(qtbot, tmp_path):
+    app = build(["--sim", "--config", str(_config(tmp_path)), "--sim-speed", "4"])
+    qtbot.addWidget(app.window)
+    assert app.window.header.overview_button is not None
+    qtbot.mouseClick(app.window.header.overview_button, Qt.MouseButton.LeftButton)
+    assert app.overview_window is not None
+    assert app.overview_worker is not None and app.overview_worker.is_running
+    _wait(qtbot, lambda: app.overview_worker.latest() is not None)
+    app.shutdown()
+    assert not app.overview_worker.is_running
+
+
 def test_the_simulator_menu_places_the_calibration_slide(qtbot, tmp_path):
     app = build(["--sim", "--config", str(_config(tmp_path))])
     qtbot.addWidget(app.window)

@@ -102,3 +102,16 @@ def test_a_mapped_point_is_drawn_on_the_other_camera_too(qtbot):
                        "gcamp": Estimate(point_px=(24.5, 7.0), mapped=True)}
     window.tick()
     assert window.right_view.tracked_point == (24.5, 7.0)
+
+
+def test_header_rec_chip_shows_elapsed_time_and_limit(qtbot):
+    window, store, _, sources, _ = _window(qtbot)
+    store.dispatch(C.StartLive())
+    store.dispatch(E.SessionOpened(path="/data/s"))
+    store.dispatch(C.SetRecordingDuration(duration_s=120.0))
+    store.dispatch(C.StartRecording())
+    sources.status = StatusInfo(xyz_um=(0.0, 0.0, 0.0), disk_free_bytes=1e11,
+                                recording_elapsed_s=65.0)
+    window.tick()
+    assert "01:05 / 02:00" in window.header.rec_chip.text()
+    assert "01:05 / 02:00" in window.controls.recording_label.text()

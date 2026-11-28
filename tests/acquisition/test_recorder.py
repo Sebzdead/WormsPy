@@ -161,3 +161,19 @@ def test_tracking_results_go_to_the_recordings_tracking_csv(tmp_path):
     with open(tmp_path / "rec-001" / "tracking.csv", newline="") as fh:
         rows = list(csv.DictReader(fh))
     assert [r["frame_index"] for r in rows] == ["0"] and rows[0]["worm_x_um"] == "3.0"
+
+
+def test_preset_duration_stops_recording_at_target_frames(tmp_path):
+    events = []
+    rec = _recorder(tmp_path, events, duration_s=0.5)   # 10 fps * 0.5 s = 5 frames
+    for i in range(10):
+        rec.submit(_pair(i))
+    rec.stop()
+    assert rec.elapsed_s == 0.5
+    assert events.count(E.RecordingDurationReached()) == 1
+    assert len(_rows(tmp_path)) == 5
+    summary = json.loads((tmp_path / "rec-001" / "recording.json").read_text())
+    assert summary["frames"] == 5
+    assert summary["target_duration_s"] == 0.5
+    assert summary["stopped_by"] == "timer"
+    assert summary["started_utc"]

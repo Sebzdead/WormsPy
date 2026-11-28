@@ -13,6 +13,7 @@ import queue
 import threading
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from pathlib import Path
 
 from wormspy.acquisition.pairing import FramePair
@@ -34,13 +35,19 @@ class Recorder:
     def __init__(self, recording_dir: Path, clock: ChannelConfig, follower: ChannelConfig,
                  fps: float, on_event: Callable[[object], None],
                  telemetry: TelemetryFn | None = None, queue_size: int = 64,
-                 extra: dict | None = None) -> None:
+                 extra: dict | None = None, duration_s: float | None = None) -> None:
         self.dir = Path(recording_dir)
         self._clock, self._follower = clock, follower
         self._fps = fps
         self._extra = dict(extra or {})     # e.g. the camera settings, for recording.json
         self._on_event = on_event
         self._telemetry = telemetry
+        self._duration_s = duration_s
+        self._target_frames: int | None = (
+            None if duration_s is None else max(1, round(duration_s * fps)))
+        self._duration_reached = False
+        self._stopped_by = "manual"
+        self._started_utc = datetime.now(UTC).isoformat(timespec="seconds")
         self._queue: queue.Queue = queue.Queue(maxsize=queue_size)
         self._lock = threading.Lock()
         self._last_offered: int | None = None
@@ -51,6 +58,10 @@ class Recorder:
         self._rows = 0
         self._first: int | None = None
         self._dropped = {clock.name: 0, follower.name: 0, BACKLOG: 0}
+
+    @property
+    def elapsed_s(self) -> float:
+        return self._rows / self._fps if self._fps > 0 else 0.0
 
     # --- producer side (acquisition / executor threads) -----------------------------------
 
@@ -103,22 +114,36 @@ class Recorder:
 
     def _run(self) -> None:
         while (pair := self._queue.get()) is not None:
-            if self._failed is not None:
-                continue                  # drain until stop() after a failure
+            if self._failed is not None or self._duration_reached:
+                continue                  # drain until stop() after a failure or timer limit
             try:
                 self._write(pair)
             except Exception as exc:      # noqa: BLE001 - any writer error ends the recording
                 self._failed = f"{type(exc).__name__}: {exc}"
+                self._stopped_by = "error"
                 self._on_event(E.RecordingFailed(reason=self._failed))
 
     def _write(self, pair: FramePair) -> None:
         if self._expected is not None and pair.frame_index > self._expected:
             skipped = pair.frame_index - self._expected
-            for index in range(self._expected, pair.frame_index):
-                self._write_row(FramePair(index, None, None, None), backlog=True)
-            self._dropped[BACKLOG] += skipped
-            self._on_event(E.FramesDropped(channel=BACKLOG, count=skipped))
-        self._write_row(pair, backlog=False)
+            if self._target_frames is not None:
+                skipped = min(skipped, max(0, self._target_frames - self._rows))
+            if skipped > 0:
+                for index in range(self._expected, self._expected + skipped):
+                    self._write_row(FramePair(index, None, None, None), backlog=True)
+                self._dropped[BACKLOG] += skipped
+                self._on_event(E.FramesDropped(channel=BACKLOG, count=skipped))
+                self._check_duration()
+        if not self._duration_reached:
+            self._write_row(pair, backlog=False)
+            self._check_duration()
+
+    def _check_duration(self) -> None:
+        if (self._target_frames is not None and self._rows >= self._target_frames
+                and not self._duration_reached):
+            self._duration_reached = True
+            self._stopped_by = "timer"
+            self._on_event(E.RecordingDurationReached())
 
     def _write_row(self, pair: FramePair, backlog: bool) -> None:
         frames = {self._clock.name: pair.clock, self._follower.name: pair.follower}
@@ -151,6 +176,9 @@ class Recorder:
             "first_frame_index": self._first,
             "last_frame_index": None if self._expected is None else self._expected - 1,
             "fps": self._fps,
+            "started_utc": self._started_utc,
+            "target_duration_s": self._duration_s,
+            "stopped_by": self._stopped_by,
             "dropped": self._dropped,
             "failed": self._failed,
             "channels": {

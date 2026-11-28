@@ -6,6 +6,7 @@ controller reports other indices. Verified manually on the rig, not in CI.
 """
 
 import os
+import threading
 
 from wormspy.control.gamepad import Gamepad, GamepadState
 
@@ -26,6 +27,10 @@ class PygameGamepad(Gamepad):
         self._buttons = DEFAULT_BUTTONS if buttons is None else buttons
         self._initialized = False
         self._joystick = None
+        self._reset_requested = threading.Event()
+
+    def reset(self) -> None:
+        self._reset_requested.set()
 
     def _ensure_init(self) -> None:
         if not self._initialized:
@@ -34,9 +39,25 @@ class PygameGamepad(Gamepad):
             self._initialized = True
 
     def poll(self) -> GamepadState | None:
+        if self._reset_requested.is_set():
+            self._reset_requested.clear()
+            if self._initialized:
+                self._pygame.joystick.quit()
+                self._pygame.joystick.init()
+            self._joystick = None
         self._ensure_init()
         pg = self._pygame
         pg.event.pump()
+        get_events = getattr(pg.event, "get", None)
+        added = getattr(pg, "JOYDEVICEADDED", None)
+        removed = getattr(pg, "JOYDEVICEREMOVED", None)
+        if (callable(get_events) and added is not None and removed is not None
+                and get_events([added, removed])):
+            self._joystick = None
+        if self._joystick is not None:
+            get_init = getattr(self._joystick, "get_init", None)
+            if callable(get_init) and not get_init():
+                self._joystick = None
         if pg.joystick.get_count() <= self._index:
             self._joystick = None
             return None

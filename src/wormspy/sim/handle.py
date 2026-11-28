@@ -13,10 +13,12 @@ def _config(name: str, spec: ChannelSpec) -> ChannelConfig:
 
 class SimRigHandle:
     def __init__(self, rig: SimRig, clock_name: str, follower_name: str,
-                 speed: float = 1.0, settings: CameraSettings | None = None) -> None:
+                 speed: float = 1.0, settings: CameraSettings | None = None,
+                 overview_camera=None) -> None:
         self.rig = rig
         self.clock_camera = rig.clock_camera
         self.follower_camera = rig.follower_camera
+        self.overview_camera = overview_camera
         self.clock_channel = _config(clock_name, rig.clock_spec)
         self.follower_channel = _config(follower_name, rig.follower_spec)
         self.fps = 1.0 / rig.frame_period_s

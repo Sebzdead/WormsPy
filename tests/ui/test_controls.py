@@ -131,3 +131,38 @@ def test_calibration_button_and_status(qtbot):
     assert not panel.calibrate_button.isEnabled() and not panel.live_button.isEnabled()
     store.dispatch(E.CalibrationCompleted(residual_px={"gcamp": 0.12, "bf": 0.08}))
     assert panel.calibration_label.text().startswith("Calibrated")
+
+
+def test_recording_timer_and_duration_limit(qtbot):
+    panel, store, _ = _panel(qtbot)
+    panel.duration_spin.setValue(90)
+    assert store.state.recording_duration_s == 90.0
+    assert "01:30" in panel.recording_label.text()
+    _live_with_session(store)
+    store.dispatch(C.StartRecording())
+    assert not panel.duration_spin.isEnabled()
+    panel.set_recording_elapsed(12.3)
+    assert "00:12 / 01:30" in panel.recording_label.text()
+
+
+def test_polarity_and_ratiometric_channel_selection(qtbot):
+    store = StateStore(AppState(source_channel="gcamp"))
+    panel = ControlPanel(
+        StateBridge(store),
+        channel_sources=(("gcamp", "GCaMP", "fluorescence"), ("dsred", "DsRed", "fluorescence")),
+    )
+    qtbot.addWidget(panel)
+    assert panel.source_box.count() == 2
+    panel.source_box.setCurrentIndex(panel.source_box.findData("dsred"))
+    assert store.state.source_channel == "dsred"
+
+    panel.polarity_box.setCurrentIndex(panel.polarity_box.findData("bright"))
+    assert store.state.polarity == "bright"
+    panel.estimator_box.setCurrentIndex(panel.estimator_box.findData("bright_marker"))
+    assert not panel.polarity_box.isEnabled()
+
+
+def test_reset_gamepad_button_dispatches_command(qtbot):
+    panel, _, effects = _panel(qtbot)
+    _click(qtbot, panel.reset_gamepad_button)
+    assert effects[-1] == X.ResetGamepad()

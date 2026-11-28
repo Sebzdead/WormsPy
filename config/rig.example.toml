@@ -90,6 +90,7 @@ min_area_px = 3000             # dark blobs smaller than this are debris, not a 
 # max_area_px = 60000          # optional: ignore blobs larger than this (e.g. plate edge)
 background_sigma_px = 150      # illumination flattening scale; well above the worm's width
 downsample = 2                 # work at 1/2 resolution (faster; the centroid stays sub-pixel)
+polarity = "dark"              # "dark" (dark worm on bright) or "bright" (bright worm on dark)
 
 [tracking.bright_marker]       # "Fluorescent marker"
 k_sigma = 8.0                  # threshold = background + k_sigma × noise (automatic per frame)
@@ -100,3 +101,18 @@ min_area_px = 3                # smaller bright specks are ignored
 data_root = "~/WormsPy_data"   # sessions are created here as <date>_<animal-id>/
 # calibration = "calibration.json"   # default: next to this file
 # presets = "presets.json"            # camera presets saved from the app; default: next to this file
+# overview_calibration = "overview_calibration.json"
+
+[overview]
+# Optional third FLIR camera giving a global view of the plate (WormTraffic).
+serial = ""                    # e.g. "23251773"; leave empty to disable on the rig
+fps = 1.0
+exposure_us = 3000.0
+gain_db = 0.0
+pixel_format = "Mono8"
+alpha = 0.02                   # running-average background learning rate
+threshold = 20                 # foreground difference threshold (1–255)
+min_area_px = 50               # minimum worm blob area in overview pixels
+max_missed = 3                 # frames without detection before dropping a track
+max_dist_px = 60.0             # maximum frame-to-frame centroid association radius
+snap_dist_px = 50.0            # click snap radius to the nearest tracked worm

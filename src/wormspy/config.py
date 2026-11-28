@@ -14,7 +14,7 @@ from wormspy.control import commands as C
 from wormspy.control.gamepad import DEFAULT_BUTTONS, StickConfig
 from wormspy.presets import CameraSettings, exposure_budget_us
 from wormspy.tracking.controller import ServoConfig
-from wormspy.tracking.estimators import BrightMarker, DarkObject
+from wormspy.tracking.estimators import POLARITIES, BrightMarker, DarkObject
 
 AXES = ("x", "y", "z")
 # Travel of the reference rig: 2× Zaber TSB60E (50.4 mm) and VSR20A (20 mm). Narrow Z in
@@ -84,10 +84,27 @@ class GamepadConfig:
 
 
 @dataclass(frozen=True)
+class OverviewConfig:
+    """Optional third global-view camera + WormTraffic multi-worm tracker."""
+    serial: str = ""
+    fps: float = 1.0
+    exposure_us: float = 3000.0
+    gain_db: float = 0.0
+    pixel_format: str = "Mono8"
+    alpha: float = 0.02
+    threshold: int = 20
+    min_area_px: int = 50
+    max_missed: int = 3
+    max_dist_px: float = 60.0
+    snap_dist_px: float = 50.0
+
+
+@dataclass(frozen=True)
 class PathsConfig:
     data_root: Path
     calibration: Path
     presets: Path
+    overview_calibration: Path
 
 
 @dataclass(frozen=True)
@@ -105,6 +122,7 @@ class RigConfig:
     gamepad: GamepadConfig
     paths: PathsConfig
     tracking: TrackingConfig = field(default_factory=TrackingConfig)
+    overview: OverviewConfig = field(default_factory=OverviewConfig)
 
 
 def _button_commands() -> dict[str, type]:
@@ -124,17 +142,21 @@ def load_config(path: Path) -> RigConfig:
     if not path.exists():
         # no rig.toml yet: every default
         stage = _stage({})
-        return RigConfig(cameras=_cameras({}), stage=stage, gamepad=_gamepad({}),
-                         paths=_paths({}, path), tracking=_tracking({}, stage))
+        cameras = _cameras({})
+        return RigConfig(cameras=cameras, stage=stage, gamepad=_gamepad({}),
+                         paths=_paths({}, path), tracking=_tracking({}, stage),
+                         overview=_overview({}, cameras))
     try:
         raw = tomllib.loads(path.read_text())
     except tomllib.TOMLDecodeError as exc:
         raise ConfigError(f"{path.name}: {exc}") from exc
     stage = _stage(raw.get("stage", {}))
-    return RigConfig(cameras=_cameras(raw.get("cameras", {})), stage=stage,
+    cameras = _cameras(raw.get("cameras", {}))
+    return RigConfig(cameras=cameras, stage=stage,
                      gamepad=_gamepad(raw.get("gamepad", {})),
                      paths=_paths(raw.get("paths", {}), path),
-                     tracking=_tracking(raw.get("tracking", {}), stage))
+                     tracking=_tracking(raw.get("tracking", {}), stage),
+                     overview=_overview(raw.get("overview", {}), cameras))
 
 
 def _camera(raw: dict, default: CameraConfig, key: str, fps: float) -> CameraConfig:
@@ -181,16 +203,25 @@ def _cameras(raw: dict) -> CamerasConfig:
     return cameras
 
 
-def _tuned(cls, raw: dict, key: str, auto: tuple[str, ...] = ()):
+def _tuned(cls, raw: dict, key: str, auto: tuple[str, ...] = (),
+           choices: dict[str, tuple[str, ...]] | None = None):
     """A frozen dataclass with rig.toml's values for its fields. Every value must be a positive
-    number; fields in `auto` may also be "auto" (stored as None: computed per frame)."""
+    number; fields in `auto` may also be "auto" (stored as None: computed per frame); fields in
+    `choices` must be one of the listed strings."""
     types = {f.name: f.type for f in dataclasses.fields(cls)}
     names = set(types)
     unknown = set(raw) - names
     if unknown:
         raise ConfigError(f"{key}: unknown key(s) {sorted(unknown)}; choose from {sorted(names)}")
+    choices = choices or {}
     values = {}
     for name, value in raw.items():
+        if name in choices:
+            if not isinstance(value, str) or value not in choices[name]:
+                raise ConfigError(f"{key}.{name} must be one of {list(choices[name])}, "
+                                  f"not {value!r}")
+            values[name] = value
+            continue
         if name in auto and value == "auto":
             values[name] = None
             continue
@@ -215,7 +246,7 @@ def _tracking(raw: dict, stage: StageConfig) -> TrackingConfig:
         raise ConfigError("tracking.servo: feed_forward must be ≤ 1.5 and "
                           "velocity_smoothing ≤ 1")
     dark = _tuned(DarkObject, raw.get("dark_object", {}), "tracking.dark_object",
-                  auto=("threshold",))
+                  auto=("threshold",), choices={"polarity": POLARITIES})
     marker = _tuned(BrightMarker, raw.get("bright_marker", {}), "tracking.bright_marker")
     return TrackingConfig(servo=servo, dark_object=dark, bright_marker=marker)
 
@@ -287,5 +318,51 @@ def _paths(raw: dict, config_path: Path) -> PathsConfig:
     data_root = Path(raw.get("data_root", Path.home() / "WormsPy_data")).expanduser()
     calibration = Path(raw.get("calibration", config_path.parent / "calibration.json"))
     presets = Path(raw.get("presets", config_path.parent / "presets.json"))
+    overview_calibration = Path(
+        raw.get("overview_calibration", config_path.parent / "overview_calibration.json"))
     return PathsConfig(data_root=data_root, calibration=calibration.expanduser(),
-                       presets=presets.expanduser())
+                       presets=presets.expanduser(),
+                       overview_calibration=overview_calibration.expanduser())
+
+
+def _overview(raw: dict, cameras: CamerasConfig) -> OverviewConfig:
+    unknown = set(raw) - {f.name for f in dataclasses.fields(OverviewConfig)}
+    if unknown:
+        raise ConfigError(f"overview: unknown key(s) {sorted(unknown)}")
+    defaults = OverviewConfig()
+    cfg = OverviewConfig(
+        serial=str(raw.get("serial", defaults.serial)),
+        fps=float(raw.get("fps", defaults.fps)),
+        exposure_us=float(raw.get("exposure_us", defaults.exposure_us)),
+        gain_db=float(raw.get("gain_db", defaults.gain_db)),
+        pixel_format=str(raw.get("pixel_format", defaults.pixel_format)),
+        alpha=float(raw.get("alpha", defaults.alpha)),
+        threshold=raw.get("threshold", defaults.threshold),
+        min_area_px=raw.get("min_area_px", defaults.min_area_px),
+        max_missed=raw.get("max_missed", defaults.max_missed),
+        max_dist_px=float(raw.get("max_dist_px", defaults.max_dist_px)),
+        snap_dist_px=float(raw.get("snap_dist_px", defaults.snap_dist_px)),
+    )
+    if cfg.serial and cfg.serial in (cameras.clock.serial, cameras.follower.serial):
+        raise ConfigError("overview.serial must differ from cameras.clock and cameras.follower")
+    if cfg.fps <= 0:
+        raise ConfigError("overview.fps must be positive")
+    if cfg.exposure_us <= 0:
+        raise ConfigError("overview.exposure_us must be positive")
+    if cfg.gain_db < 0:
+        raise ConfigError("overview.gain_db must be non-negative")
+    if cfg.pixel_format not in PIXEL_FORMATS:
+        raise ConfigError(f"overview.pixel_format must be one of {list(PIXEL_FORMATS)}")
+    if not 0 < cfg.alpha <= 1:
+        raise ConfigError("overview.alpha must be in (0, 1]")
+    if isinstance(cfg.threshold, bool) or not isinstance(cfg.threshold, int) or not (0 < cfg.threshold <= 255):
+        raise ConfigError("overview.threshold must be an integer in (0, 255]")
+    if isinstance(cfg.min_area_px, bool) or not isinstance(cfg.min_area_px, int) or cfg.min_area_px <= 0:
+        raise ConfigError("overview.min_area_px must be a positive integer")
+    if isinstance(cfg.max_missed, bool) or not isinstance(cfg.max_missed, int) or cfg.max_missed < 0:
+        raise ConfigError("overview.max_missed must be a non-negative integer")
+    if cfg.max_dist_px <= 0:
+        raise ConfigError("overview.max_dist_px must be positive")
+    if cfg.snap_dist_px <= 0:
+        raise ConfigError("overview.snap_dist_px must be positive")
+    return cfg

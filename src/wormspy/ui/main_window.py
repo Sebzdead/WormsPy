@@ -25,7 +25,7 @@ from wormspy.control import commands as C
 from wormspy.core.frames import FrameHub
 from wormspy.ui import theme
 from wormspy.ui.bridge import StateBridge
-from wormspy.ui.controls import ControlPanel
+from wormspy.ui.controls import ControlPanel, format_duration
 from wormspy.ui.live_view import LiveView
 
 
@@ -33,6 +33,7 @@ from wormspy.ui.live_view import LiveView
 class StatusInfo:
     xyz_um: tuple[float, float, float] | None
     disk_free_bytes: float | None
+    recording_elapsed_s: float | None = None
 
 
 class AlarmBar(QFrame):
@@ -115,8 +116,11 @@ class Readouts(QFrame):
 class Header(QWidget):
     """The WormsPy wordmark, mode chips and live readouts, in one slim bar."""
 
-    def __init__(self, bridge: StateBridge) -> None:
+    def __init__(self, bridge: StateBridge,
+                 on_open_overview: Callable[[], None] | None = None) -> None:
         super().__init__()
+        self._state = bridge.state
+        self._elapsed_s: float | None = None
         self.wordmark = QLabel("WormsPy")
         self.wordmark.setStyleSheet(f"color: {theme.ACCENT}; font-size: 24px; font-weight: 800;"
                                     "letter-spacing: -0.5px;")
@@ -125,6 +129,11 @@ class Header(QWidget):
         self.mode_chip, self.rec_chip, self.tracking_chip = (QLabel() for _ in range(3))
         for chip in (self.mode_chip, self.rec_chip, self.tracking_chip):
             chip.setObjectName("chip")
+        self.overview_button: QPushButton | None = None
+        if on_open_overview is not None:
+            self.overview_button = QPushButton("Global view")
+            self.overview_button.setToolTip("Open the WormTraffic global-view plate tracker")
+            self.overview_button.clicked.connect(on_open_overview)
         self.readouts = Readouts()
         self.xyz_label, self.fps_label, self.disk_label = self.readouts.values
         row = QHBoxLayout(self)
@@ -136,19 +145,38 @@ class Header(QWidget):
         row.addWidget(self.mode_chip)
         row.addWidget(self.rec_chip)
         row.addWidget(self.tracking_chip)
+        if self.overview_button is not None:
+            row.addWidget(self.overview_button)
         row.addStretch(1)
         row.addWidget(self.readouts)
         bridge.state_changed.connect(self.render)
         self.render(bridge.state)
 
+    def set_recording_elapsed(self, elapsed_s: float | None) -> None:
+        self._elapsed_s = elapsed_s
+        if self._state.mode is Mode.RECORDING:
+            self._update_rec_chip()
+
+    def _update_rec_chip(self) -> None:
+        s = self._state
+        if s.mode is not Mode.RECORDING:
+            return
+        elapsed = format_duration(0.0 if self._elapsed_s is None else self._elapsed_s)
+        if s.recording_duration_s is not None:
+            elapsed = f"{elapsed} / {format_duration(s.recording_duration_s)}"
+        drops = f" · {s.recording_drops} dropped" if s.recording_drops else ""
+        self._chip(self.rec_chip, f"● REC {s.recording_name} · {elapsed}{drops}", "rec")
+
     def render(self, s: AppState) -> None:
+        self._state = s
         mode = {Mode.IDLE: ("IDLE", ""), Mode.LIVE: ("LIVE", "live"),
                 Mode.RECORDING: ("LIVE", "live")}[s.mode]
         self._chip(self.mode_chip, *mode)
         self.rec_chip.setVisible(s.mode is Mode.RECORDING)
         if s.mode is Mode.RECORDING:
-            drops = f" · {s.recording_drops} dropped" if s.recording_drops else ""
-            self._chip(self.rec_chip, f"● REC {s.recording_name}{drops}", "rec")
+            self._update_rec_chip()
+        else:
+            self._elapsed_s = None
         tracking = {TrackingStatus.TRACKING: ("TRACKING", "live"),
                     TrackingStatus.LOST: ("TARGET LOST", "rec"),
                     TrackingStatus.OVERRIDE: ("JOYSTICK", "warn"),
@@ -171,7 +199,9 @@ class MainWindow(QMainWindow):
                  right: tuple[str, str], status: Callable[[], StatusInfo],
                  overlay: Callable[[], dict] = dict,
                  refresh_hz: float = 25.0,
-                 camera_labels: tuple[str, str] = ("Clock cam", "Follower")) -> None:
+                 camera_labels: tuple[str, str] = ("Clock cam", "Follower"),
+                 channel_sources: tuple[tuple[str, str, str], ...] | None = None,
+                 on_open_overview: Callable[[], None] | None = None) -> None:
         super().__init__()
         self.setWindowTitle("WormsPy")
         self._bridge = bridge
@@ -186,12 +216,12 @@ class MainWindow(QMainWindow):
                 lambda x, y, channel=view.channel:
                 bridge.dispatch(C.CentreOn(channel=channel, x_px=x, y_px=y)))
 
-        self.header = Header(bridge)
+        self.header = Header(bridge, on_open_overview=on_open_overview)
         self.xyz_label = self.header.xyz_label
         self.fps_label = self.header.fps_label
         self.disk_label = self.header.disk_label
         self.alarm_bar = AlarmBar(bridge)
-        self.controls = ControlPanel(bridge, camera_labels)
+        self.controls = ControlPanel(bridge, camera_labels, channel_sources=channel_sources)
 
         feeds = QHBoxLayout()
         feeds.setSpacing(FEED_GAP)
@@ -280,6 +310,8 @@ class MainWindow(QMainWindow):
                 fps = (samples[-1][0] - samples[0][0]) / (samples[-1][1] - samples[0][1])
                 rates.append(f"{view.channel} {fps:.1f}")
         self.fps_label.setText("  ".join(rates) + " fps" if rates else "—")
+        self.header.set_recording_elapsed(info.recording_elapsed_s)
+        self.controls.set_recording_elapsed(info.recording_elapsed_s)
 
     def closeEvent(self, event) -> None:
         self._timer.stop()

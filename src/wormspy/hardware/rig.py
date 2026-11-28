@@ -10,7 +10,7 @@ import time
 from collections.abc import Callable
 
 from wormspy.acquisition.recorder import ChannelConfig
-from wormspy.config import CamerasConfig, RigConfig
+from wormspy.config import CameraConfig, CamerasConfig, RigConfig
 from wormspy.core.stage import NullStage, Stage
 from wormspy.hardware.flir import FlirCamera, FlirSystem, HardwareError
 from wormspy.presets import CameraSettings
@@ -19,8 +19,10 @@ from wormspy.presets import CameraSettings
 class HardwareRig:
     def __init__(self, clock: FlirCamera, follower: FlirCamera, cameras: CamerasConfig,
                  stage: Stage, closers: tuple[Callable[[], None], ...] = (),
-                 warnings: tuple[str, ...] = ()) -> None:
+                 warnings: tuple[str, ...] = (),
+                 overview_camera: FlirCamera | None = None) -> None:
         self.clock_camera, self.follower_camera = clock, follower
+        self.overview_camera = overview_camera
         self.clock_channel = ChannelConfig(cameras.clock.name, cameras.clock.role, clock.shape)
         self.follower_channel = ChannelConfig(cameras.follower.name, cameras.follower.role,
                                               follower.shape)
@@ -69,6 +71,8 @@ class HardwareRig:
 
     def close(self) -> None:
         self.stop()
+        if self.overview_camera is not None:
+            self.overview_camera.end()
         for close in self._closers:
             close()
 
@@ -89,6 +93,21 @@ def open_rig(config: RigConfig, pyspin=None,
         system.close()
         raise
     warnings = []
+    overview: FlirCamera | None = None
+    if config.overview.serial:
+        ov_cfg = CameraConfig(
+            name="overview", role="behaviour",
+            pixel_format=config.overview.pixel_format,
+            exposure_us=config.overview.exposure_us,
+            gain_db=config.overview.gain_db,
+            serial=config.overview.serial,
+        )
+        try:
+            overview = system.camera(ov_cfg, "overview")
+            overview.configure_as_overview(config.overview.fps)
+        except Exception as exc:  # noqa: BLE001 - overview camera is optional
+            overview = None
+            warnings.append(f"No overview camera ({type(exc).__name__}: {exc}).")
     try:
         stage = stage_connector(config)
     except Exception as exc:          # noqa: BLE001 - any SDK/serial error: run without a stage
@@ -102,7 +121,7 @@ def open_rig(config: RigConfig, pyspin=None,
         closers.append(stage.close)
     try:
         return HardwareRig(clock, follower, config.cameras, stage, tuple(closers),
-                           tuple(warnings))
+                           tuple(warnings), overview_camera=overview)
     except Exception:
         for close in closers:
             close()

@@ -84,6 +84,26 @@ def test_dark_object_returns_a_mask_for_the_overlay():
     assert estimate.mask.dtype == bool and estimate.mask.sum() > 1000
 
 
+def test_bright_polarity_tracks_a_bright_worm_on_dark_background_in_8bit_and_16bit():
+    worm = _worm()
+    dark_bf = render_behaviour(worm, worm.centroid, GEOM, background=200, body=80,
+                               noise_sigma=4.0, rng=np.random.default_rng(5))
+    truth = _mask_centroid(dark_bf)
+    bright_8 = (255 - dark_bf).astype(np.uint8)
+    est_8 = DarkObject(background_sigma_px=40.0, min_area_px=200, polarity="bright")(bright_8)
+    assert est_8.point_px == pytest.approx(truth, abs=2.0)
+
+    # 16-bit contrast > 255: verifies Otsu scaling does not clip at 255
+    bright_16 = ((255 - dark_bf.astype(np.uint16)) * 20 + 1000).astype(np.uint16)
+    est_16 = DarkObject(background_sigma_px=40.0, min_area_px=200, polarity="bright")(bright_16)
+    assert est_16.point_px == pytest.approx(truth, abs=2.0)
+    assert est_16.threshold > 255.0
+
+    empty_16 = np.full(bright_16.shape, 1000, dtype=np.uint16)
+    assert DarkObject(background_sigma_px=40.0, min_area_px=200,
+                      polarity="bright")(empty_16).point_px is None
+
+
 # --- bright marker (fluorescence) ---------------------------------------------------------------
 
 def test_bright_marker_finds_the_neuron_with_subpixel_accuracy():

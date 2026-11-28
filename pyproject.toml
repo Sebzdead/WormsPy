@@ -24,6 +24,7 @@ wormspy-review = "wormspy.app.review:main"   # needs the analysis extra
 zaber = ["zaber-motion>=7"]
 gamepad = ["pygame>=2.5"]
 analysis = ["pandas>=2.1"]       # wormspy.reader: load recordings for analysis
+tierpsy = ["pandas>=2.1", "h5py>=3.10"]
 
 [dependency-groups]
 dev = [

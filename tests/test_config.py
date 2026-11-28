@@ -143,11 +143,13 @@ lost_after_misses = 5
 [tracking.dark_object]
 threshold = 30
 max_area_px = 50000
+polarity = "bright"
 [tracking.bright_marker]
 k_sigma = 6
 """)).tracking
     assert tracking.servo.gain_per_s == 3.5 and tracking.servo.lost_after_misses == 5
     assert tracking.dark_object.threshold == 30 and tracking.dark_object.max_area_px == 50000
+    assert tracking.dark_object.polarity == "bright"
     assert tracking.bright_marker.k_sigma == 6
 
 
@@ -157,6 +159,7 @@ k_sigma = 6
     ("[tracking.servo]\nlost_after_misses = 2.5", "whole number"),
     ("[tracking.servo]\nmax_speed_um_s = 5000", "stage.max_speed_um_s"),
     ("[tracking.dark_object]\nthreshold = 'otsu'", '"auto"'),
+    ("[tracking.dark_object]\npolarity = 'auto'", "polarity"),
     ("[tracking.bright_marker]\nthreshold = 'auto'", "unknown key"),
     ("[tracking.estimator]\nx = 1", "unknown section"),
 ])
@@ -184,5 +187,29 @@ X = 3
     ("[gamepad.unknown]\nx = 1", "unknown section"),
 ])
 def test_invalid_gamepad_index_overrides_are_rejected(tmp_path, text, message):
+    with pytest.raises(ConfigError, match=message):
+        load_config(_write(tmp_path, text))
+
+
+def test_overview_config_loads_and_validates(tmp_path):
+    from wormspy.config import OverviewConfig
+    assert load_config(EXAMPLE).overview == OverviewConfig()
+    cfg = load_config(_write(tmp_path, """
+[overview]
+serial = "23251773"
+fps = 2
+threshold = 35
+min_area_px = 80
+""")).overview
+    assert cfg.serial == "23251773" and cfg.fps == 2.0 and cfg.threshold == 35 and cfg.min_area_px == 80
+
+
+@pytest.mark.parametrize(("text", "message"), [
+    ("[overview]\nunknown = 1", "unknown key"),
+    ("[overview]\nfps = 0", "overview.fps"),
+    ("[overview]\nthreshold = 300", "overview.threshold"),
+    ("[cameras.clock]\nserial = '1'\n[overview]\nserial = '1'", "overview.serial"),
+])
+def test_invalid_overview_config_is_rejected(tmp_path, text, message):
     with pytest.raises(ConfigError, match=message):
         load_config(_write(tmp_path, text))

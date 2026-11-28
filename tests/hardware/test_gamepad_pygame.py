@@ -69,3 +69,26 @@ def test_poll_uses_custom_axis_and_button_indices(monkeypatch):
     assert state.axes == {"left_x": 0.0, "left_y": 0.1, "right_y": -0.8}
     assert state.buttons == frozenset({"X"})
     pad.close()
+
+
+def test_reset_and_hotplug_reinitialize_joystick(monkeypatch):
+    fake, calls = _fake_pygame(monkeypatch)
+    fake.JOYDEVICEADDED = 1541
+    fake.JOYDEVICEREMOVED = 1542
+    hotplug_events = []
+    fake.event = SimpleNamespace(
+        pump=lambda: calls.append(("pump", None)),
+        get=lambda types: [hotplug_events.pop(0)] if hotplug_events else [],
+    )
+    pad = PygameGamepad()
+    assert pad.poll() is not None
+    pad.reset()
+    assert pad.poll() is not None
+    assert ("joystick_quit", None) in calls
+    assert calls.count(("joystick_init", None)) == 2
+    assert calls.count(("joystick_obj_init", 0)) == 2
+
+    hotplug_events.append(object())
+    assert pad.poll() is not None
+    assert calls.count(("joystick_obj_init", 0)) == 3
+    pad.close()

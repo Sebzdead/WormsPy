@@ -165,3 +165,18 @@ def test_transient_error_raises_alarm_recovers_and_closes_gamepad():
     assert [d for d in dispatched if isinstance(d, E.AlarmRaised)] == [
         E.AlarmRaised(kind="gamepad_error", message="Gamepad/stage error: serial write failed")]
     assert closed == [True]
+
+
+def test_reset_stops_moving_axes_clears_buttons_and_resets_device():
+    ctl, pad, stage, dispatched = _controller()
+    reset_calls = []
+    pad.reset = lambda: reset_calls.append(True)
+    pad.set(axes={"left_x": 0.9}, buttons={"B"})
+    ctl.step()
+    assert dispatched == [C.ToggleRecording()]
+    ctl.reset()
+    ctl.step()
+    assert stage.stops == ["x"]
+    assert reset_calls == [True]
+    # held button is treated as freshly pressed after reset
+    assert dispatched == [C.ToggleRecording(), C.ToggleRecording()]

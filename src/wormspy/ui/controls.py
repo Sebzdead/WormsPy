@@ -17,6 +17,7 @@ from PySide6.QtWidgets import (
     QLineEdit,
     QPlainTextEdit,
     QPushButton,
+    QSpinBox,
     QVBoxLayout,
     QWidget,
 )
@@ -29,7 +30,9 @@ from wormspy.ui.camera_card import CameraCard
 
 ESTIMATORS = (("dark_object", "Brightfield silhouette", "behaviour"),
               ("bright_marker", "Fluorescent marker", "fluorescence"))
-SOURCES = (("behaviour", "Brightfield camera"), ("fluorescence", "Fluorescence camera"))
+SOURCES = (("behaviour", "Brightfield camera", "behaviour"),
+           ("fluorescence", "Fluorescence camera", "fluorescence"))
+POLARITIES = (("dark", "Dark on bright"), ("bright", "Bright on dark"))
 TRACKING_TEXT = {
     TrackingStatus.OFF: ("Off", theme.MUTED),
     TrackingStatus.TRACKING: ("Tracking", theme.ACCENT),
@@ -39,12 +42,24 @@ TRACKING_TEXT = {
 }
 
 
+def format_duration(seconds: float) -> str:
+    total = max(0, int(seconds))
+    hours, rem = divmod(total, 3600)
+    minutes, secs = divmod(rem, 60)
+    if hours:
+        return f"{hours}:{minutes:02d}:{secs:02d}"
+    return f"{minutes:02d}:{secs:02d}"
+
+
 class ControlPanel(QWidget):
     def __init__(self, bridge: StateBridge,
-                 camera_labels: tuple[str, str] = ("Clock cam", "Follower")) -> None:
+                 camera_labels: tuple[str, str] = ("Clock cam", "Follower"),
+                 channel_sources: tuple[tuple[str, str, str], ...] | None = None) -> None:
         super().__init__()
         self._bridge = bridge
         self._state = bridge.state
+        self._sources = SOURCES if channel_sources is None else channel_sources
+        self._elapsed_s: float | None = None
         layout = QHBoxLayout(self)          # one row of cards below the feeds
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(8)
@@ -90,6 +105,20 @@ class ControlPanel(QWidget):
         rec_layout.setSpacing(6)
         self.record_button = QPushButton()
         self.record_button.clicked.connect(lambda: bridge.dispatch(C.ToggleRecording()))
+        self.duration_spin = QSpinBox()
+        self.duration_spin.setRange(0, 86400)
+        self.duration_spin.setSingleStep(10)
+        self.duration_spin.setSpecialValueText("∞")
+        self.duration_spin.setSuffix(" s")
+        self.duration_spin.setKeyboardTracking(False)
+        self.duration_spin.setMinimumWidth(68)
+        self.duration_spin.setToolTip("Auto-stop after N seconds (0 = manual stop)")
+        self.duration_spin.valueChanged.connect(self._duration_changed)
+        rec_top = QHBoxLayout()
+        rec_top.setSpacing(6)
+        rec_top.addWidget(self.record_button, 1)
+        rec_top.addWidget(self._muted("Limit"))
+        rec_top.addWidget(self.duration_spin)
         self.recording_label = QLabel()
         self.recording_label.setObjectName("muted")
         self.recording_label.setFont(theme.mono_font())
@@ -103,7 +132,7 @@ class ControlPanel(QWidget):
         marker_row.setSpacing(8)
         marker_row.addWidget(self.event_label, 1)
         marker_row.addWidget(self.mark_button)
-        rec_layout.addWidget(self.record_button)
+        rec_layout.addLayout(rec_top)
         rec_layout.addWidget(self.recording_label)
         rec_layout.addLayout(marker_row)
         rec_layout.addStretch(1)
@@ -119,19 +148,24 @@ class ControlPanel(QWidget):
         for key, label, _source in ESTIMATORS:
             self.estimator_box.addItem(label, key)
         self.source_box = QComboBox()
-        for key, label in SOURCES:
+        for key, label, _role in self._sources:
             self.source_box.addItem(label, key)
-        for box in (self.estimator_box, self.source_box):     # may elide rather than widen
+        self.polarity_box = QComboBox()
+        for key, label in POLARITIES:
+            self.polarity_box.addItem(label, key)
+        for box in (self.estimator_box, self.source_box, self.polarity_box):
             box.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
             box.setMinimumContentsLength(8)
         self.estimator_box.currentIndexChanged.connect(self._estimator_chosen)
         self.source_box.currentIndexChanged.connect(self._source_chosen)
+        self.polarity_box.currentIndexChanged.connect(self._polarity_chosen)
         self.track_button = QPushButton()
         self.track_button.setProperty("role", "primary")
         self.track_button.clicked.connect(lambda: bridge.dispatch(C.ToggleTracking()))
         self.tracking_label = QLabel()
         trk.addRow(self._muted("Target"), self.estimator_box)
         trk.addRow(self._muted("Camera"), self.source_box)
+        trk.addRow(self._muted("Polarity"), self.polarity_box)
         trk.addRow(self.track_button)
         trk.addRow(self._muted("Status"), self.tracking_label)
         layout.addWidget(tracking, 3)
@@ -153,13 +187,20 @@ class ControlPanel(QWidget):
         focus_row.addWidget(self.return_focus_button)
         self.focus_label = QLabel()
         self.focus_label.setObjectName("muted")
+        self.reset_gamepad_button = QPushButton("Reset gamepad")
+        self.reset_gamepad_button.setToolTip("Reinitialize the gamepad controller without restarting")
+        self.reset_gamepad_button.clicked.connect(lambda: bridge.dispatch(C.ResetGamepad()))
+        focus_status_row = QHBoxLayout()
+        focus_status_row.setSpacing(8)
+        focus_status_row.addWidget(self.focus_label, 1)
+        focus_status_row.addWidget(self.reset_gamepad_button)
         self.calibrate_button = QPushButton("Calibrate stage")
         self.calibrate_button.setToolTip("Needs a bead or grid slide in focus under the objective")
         self.calibrate_button.clicked.connect(lambda: bridge.dispatch(C.Calibrate()))
         self.calibration_label = QLabel()
         self.calibration_label.setObjectName("muted")
         stg.addLayout(focus_row)
-        stg.addWidget(self.focus_label)
+        stg.addLayout(focus_status_row)
         calibration_row = QHBoxLayout()
         calibration_row.setSpacing(10)
         calibration_row.addWidget(self.calibrate_button)
@@ -193,14 +234,45 @@ class ControlPanel(QWidget):
             "condition": self.condition.text().strip(),
             "notes": self.notes.toPlainText().strip()}))
 
+    def _duration_changed(self, value: int) -> None:
+        self._bridge.dispatch(C.SetRecordingDuration(duration_s=None if value == 0 else float(value)))
+
     def _estimator_chosen(self, _index: int) -> None:
         name = self.estimator_box.currentData()
-        default_source = next(src for key, _label, src in ESTIMATORS if key == name)
-        self._bridge.dispatch(C.SelectEstimator(name=name, source_channel=default_source))
+        preferred_role = next(src for key, _label, src in ESTIMATORS if key == name)
+        default_source = next(
+            (key for key, _label, role in self._sources if role == preferred_role),
+            self.source_box.currentData())
+        self._bridge.dispatch(C.SelectEstimator(name=name, source_channel=default_source,
+                                                polarity=self.polarity_box.currentData()))
 
     def _source_chosen(self, _index: int) -> None:
         self._bridge.dispatch(C.SelectEstimator(name=self.estimator_box.currentData(),
-                                                source_channel=self.source_box.currentData()))
+                                                source_channel=self.source_box.currentData(),
+                                                polarity=self.polarity_box.currentData()))
+
+    def _polarity_chosen(self, _index: int) -> None:
+        self._bridge.dispatch(C.SelectEstimator(name=self.estimator_box.currentData(),
+                                                source_channel=self.source_box.currentData(),
+                                                polarity=self.polarity_box.currentData()))
+
+    def set_recording_elapsed(self, elapsed_s: float | None) -> None:
+        self._elapsed_s = elapsed_s
+        if self._state.mode is Mode.RECORDING:
+            self._update_recording_label()
+
+    def _update_recording_label(self) -> None:
+        s = self._state
+        if s.mode is not Mode.RECORDING:
+            limit = (f" (limit {format_duration(s.recording_duration_s)})"
+                     if s.recording_duration_s is not None else "")
+            self.recording_label.setText(f"Not recording{limit}")
+            return
+        elapsed = format_duration(0.0 if self._elapsed_s is None else self._elapsed_s)
+        if s.recording_duration_s is not None:
+            elapsed = f"{elapsed} / {format_duration(s.recording_duration_s)}"
+        self.recording_label.setText(
+            f"{s.recording_name} · {elapsed} · {s.recording_drops} dropped")
 
     # --- the single source of truth for the panel's appearance ------------------------------
 
@@ -210,6 +282,8 @@ class ControlPanel(QWidget):
         live, recording = s.mode is not Mode.IDLE, s.mode is Mode.RECORDING
         busy = s.calibrating
         tracking_on = s.tracking is not TrackingStatus.OFF
+        if not recording:
+            self._elapsed_s = None
 
         self.live_button.setText("Start live" if s.mode is Mode.IDLE else "Stop live")
         self.live_button.setEnabled(not recording and not busy)
@@ -222,8 +296,12 @@ class ControlPanel(QWidget):
         theme.repolish(self.record_button)
         self.record_button.setEnabled(recording or (s.mode is Mode.LIVE and s.session_dir is not None
                                                     and not busy))
-        self.recording_label.setText(f"{s.recording_name} · {s.recording_drops} dropped"
-                                     if recording else "Not recording")
+        self.duration_spin.blockSignals(True)
+        self.duration_spin.setValue(0 if s.recording_duration_s is None
+                                    else round(s.recording_duration_s))
+        self.duration_spin.blockSignals(False)
+        self.duration_spin.setEnabled(not recording)
+        self._update_recording_label()
         self.mark_button.setEnabled(recording)
         self.event_label.setEnabled(recording)
 
@@ -232,14 +310,27 @@ class ControlPanel(QWidget):
         text, colour = TRACKING_TEXT[s.tracking]
         self.tracking_label.setText(text)
         self.tracking_label.setStyleSheet(f"color: {colour}; font-weight: 600;")
-        for box, value in ((self.estimator_box, s.estimator), (self.source_box, s.source_channel)):
-            box.blockSignals(True)
-            box.setCurrentIndex(max(0, box.findData(value)))
-            box.blockSignals(False)
-            box.setEnabled(not tracking_on)
+        source_index = self.source_box.findData(s.source_channel)
+        if source_index < 0:
+            role_match = next((i for i, (_k, _l, role) in enumerate(self._sources)
+                               if role == s.source_channel), 0)
+            source_index = role_match
+        self.estimator_box.blockSignals(True)
+        self.estimator_box.setCurrentIndex(max(0, self.estimator_box.findData(s.estimator)))
+        self.estimator_box.blockSignals(False)
+        self.estimator_box.setEnabled(not tracking_on)
+        self.source_box.blockSignals(True)
+        self.source_box.setCurrentIndex(max(0, source_index))
+        self.source_box.blockSignals(False)
+        self.source_box.setEnabled(not tracking_on)
+        self.polarity_box.blockSignals(True)
+        self.polarity_box.setCurrentIndex(max(0, self.polarity_box.findData(s.polarity)))
+        self.polarity_box.blockSignals(False)
+        self.polarity_box.setEnabled(not tracking_on and s.estimator == "dark_object")
 
         self.set_focus_button.setEnabled(not busy)
         self.return_focus_button.setEnabled(s.focus_z_um is not None and not busy)
+        self.reset_gamepad_button.setEnabled(not busy)
         self.focus_label.setText(f"Focus z = {s.focus_z_um:.0f} µm" if s.focus_z_um is not None
                                  else "No focus stored")
 

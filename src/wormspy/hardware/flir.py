@@ -140,6 +140,14 @@ class FlirCamera(Camera):
         self._set("TriggerOverlap", "ReadOut")   # accept the next trigger during readout
         self._set("TriggerMode", "On")
 
+    def configure_as_overview(self, fps: float) -> None:
+        """Free-run at `fps` with NewestOnly buffering for the global-view overview camera."""
+        self._set("TriggerMode", "Off")
+        self._set("AcquisitionFrameRateEnable", True)
+        self._set("AcquisitionFrameRate", float(fps))
+        self._set("TLStream.StreamBufferHandlingMode", "NewestOnly")
+        self._set("TLStream.StreamBufferCountManual", 4)
+
     def set_exposure(self, exposure_us: float, gain_db: float) -> None:
         """Exposure and gain for the next run (the camera must not be streaming)."""
         self._set("ExposureTime", float(exposure_us))

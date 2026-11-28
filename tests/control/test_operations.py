@@ -98,3 +98,48 @@ def test_centre_on_a_clicked_point_needs_live_and_a_calibration():
     calibrated = reduce(_live(), E.CalibrationCompleted(residual_px={"behaviour": 0.1})).state
     t = reduce(calibrated, C.CentreOn(channel="behaviour", x_px=10, y_px=20))
     assert t.effects == (X.CentreOn(channel="behaviour", x_px=10, y_px=20),)
+
+
+# --- recording timer, polarity, gamepad reset ----------------------------------------------
+
+def test_recording_duration_validates_and_triggers_auto_stop():
+    assert reduce(AppState(), C.SetRecordingDuration(duration_s=0.0)).rejected
+    assert reduce(AppState(), C.SetRecordingDuration(duration_s=-5.0)).rejected
+    s = reduce(_live(), E.SessionOpened(path="/data/s")).state
+    s = reduce(s, C.SetRecordingDuration(duration_s=30.0)).state
+    assert s.recording_duration_s == 30.0
+    t = reduce(s, C.StartRecording())
+    assert t.effects == (X.OpenRecording(session_dir="/data/s", name="rec-001", duration_s=30.0),)
+    assert reduce(t.state, C.SetRecordingDuration(duration_s=10.0)).rejected
+    done = reduce(t.state, E.RecordingDurationReached())
+    assert done.state.mode.value == "live" and done.state.next_recording == 2
+    assert done.effects == (X.CloseRecording(),)
+    stale = reduce(done.state, E.RecordingDurationReached())
+    assert stale.state == done.state and stale.effects == ()
+
+
+def test_select_estimator_updates_and_validates_polarity():
+    t = reduce(_live(), C.SelectEstimator(name="dark_object", source_channel="bf", polarity="bright"))
+    assert t.state.polarity == "bright"
+    assert reduce(t.state, C.SetTracking(enabled=True)).effects == (
+        X.SetTracker(enabled=True, estimator="dark_object", source_channel="bf", polarity="bright"),
+    )
+    assert reduce(_live(), C.SelectEstimator(name="dark_object", source_channel="bf",
+                                             polarity="inverted")).rejected
+
+
+def test_reset_gamepad_is_allowed_in_any_mode():
+    for state in (AppState(), _live(), _recording()):
+        t = reduce(state, C.ResetGamepad())
+        assert t.rejected is None and t.effects == (X.ResetGamepad(),)
+
+
+def test_move_stage_xy_disables_tracking_and_is_refused_while_recording():
+    tracking = reduce(_live(), C.SetTracking(enabled=True)).state
+    t = reduce(tracking, C.MoveStageXY(x_um=12_000.0, y_um=18_000.0))
+    assert t.state.tracking is TrackingStatus.OFF
+    assert t.effects == (
+        X.SetTracker(enabled=False, estimator="dark_object", source_channel="behaviour"),
+        X.MoveXYTo(x_um=12_000.0, y_um=18_000.0),
+    )
+    assert reduce(_recording(), C.MoveStageXY(x_um=1000.0, y_um=1000.0)).rejected

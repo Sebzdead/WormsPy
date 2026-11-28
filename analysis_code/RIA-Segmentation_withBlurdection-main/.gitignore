@@ -1,0 +1,42 @@
+# Runtime outputs and large experiment data
+results/
+pipeline_logs/
+training_data*/
+training_runs/
+blur_detection_output*/
+ECC_full_frame_cropection_test_2/
+_sam2_worm_chunks/
+archive_unused_scripts/
+roi_templates/
+roi_templates_sam2/
+__pycache__/
+.pytest_cache/
+.vscode/
+
+# Local SAM2/YOLO caches and generated config
+Ultralytics/
+runs/
+
+# Image/video/TIFF data and generated previews
+*.tif
+*.tiff
+*.jpg
+*.jpeg
+*.png
+*.mp4
+*.avi
+*.mov
+
+# Model weights/checkpoints
+*.pt
+*.pth
+*.ckpt
+*.onnx
+
+# Local scratch files
+*.log
+*.tmp
+*.bak
+*.swp
+desktop.ini
+tempMatch*.py

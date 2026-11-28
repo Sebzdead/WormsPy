@@ -67,7 +67,10 @@ to learn the controls.
 
 If a camera is missing, WormsPy stops with a message naming the serial number it expected and
 the ones it found. If the stage is missing, WormsPy still starts, so you can image, but a red
-alarm says so. The joystick, tracking and calibration need the stage.
+alarm says so. The joystick, tracking and calibration need the stage. If an optional
+`[overview]` camera serial is configured, a **Global view** button appears in the header to
+open the WormTraffic plate-overview window (in `--sim`, a synthetic multi-worm plate is
+simulated automatically).
 
 ---
 
@@ -85,8 +88,12 @@ alarm says so. The joystick, tracking and calibration need the stage.
 ```
 
 ### Header
-- **Mode chips.** `IDLE` or `LIVE`; `● REC rec-NNN` while recording, with a drop count if any
-  frames were lost; and the tracking status.
+- **Mode chips.** `IDLE` or `LIVE`; `● REC rec-NNN` while recording, with elapsed time and a
+  drop count if any frames were lost; and the tracking status.
+- **Global view.** Opens the WormTraffic third window when an overview camera is configured
+  (or in `--sim`): displays real-time whole-plate worm tracks and the current high-mag FOV box,
+  and lets you click any track to move the stage directly to that worm. Use **Calibrate (4
+  pts)** or **Import YAML…** to map overview pixels to Zaber XY coordinates.
 - **Readouts.** The stage position (µm), each camera's measured frame rate, and the free disk
   space in the data folder.
 
@@ -211,8 +218,7 @@ the metadata you enter, the calibration, and one or more **recordings** (`rec-00
 **Track**
 
 8. In the TRACKING card, choose the **Target**:
-   - **Brightfield silhouette:** the worm's dark body on the behaviour camera. This is the
-     usual choice, and works for any animal darker than the plate.
+   - **Brightfield silhouette:** the worm's body on the camera (default **Dark on bright**, or switch **Polarity** to **Bright on dark** for darkfield / whole-body fluorescence).
    - **Fluorescent marker:** the brightest spot on a fluorescence camera, e.g. a neuron or a
      co-injection marker.
 
@@ -225,7 +231,9 @@ the metadata you enter, the calibration, and one or more **recordings** (`rec-00
 
 **Record**
 
-10. Press **● Record**, or **B**. The header shows `● REC rec-001`.
+10. Optionally set a duration **Limit** (seconds; `∞` means manual stop) in the RECORDING card,
+    then press **● Record**, or **B**. The header shows `● REC rec-001 · 00:00` (and the limit if
+    set), and stops automatically when the preset duration is reached.
 11. Type a label and press **Mark event** to note stimuli and interventions (e.g. *glycerol
     on*). The marker lands on the next frame and is saved with it.
 12. Press **■ Stop recording**, or **B**. The files are finalised. Press Record again for
@@ -266,7 +274,8 @@ the metadata you enter, the calibration, and one or more **recordings** (`rec-00
 
 Buttons can be remapped in rig.toml (`[gamepad.buttons]`). Stick speeds, dead zone and
 direction are in `[gamepad.sticks]`. *(rig check: button and axis numbers on your
-controller.)*
+controller.)* If the gamepad drops out or goes to sleep, reconnect it or press **Reset gamepad**
+in FOCUS & CALIBRATION without restarting WormsPy.
 
 ---
 
@@ -311,7 +320,13 @@ from wormspy.reader import open_recording      # uv sync --extra analysis
 with open_recording("…/2026-09-28_N2-3/rec-001") as rec:
     calcium = rec["gcamp"].array()
     rec.frames[["x_um", "y_um"]]
+    world = rec.plate_um_batch("brightfield", pts_px)   # vectorised pixels → plate µm
 ```
+
+For offline behaviour/Tierpsy export and RIA pipeline integration:
+- `uv run python -m wormspy.analysis.trajectory <rec-NNN>` (add `--hdf5` with `uv sync --extra tierpsy`)
+- `uv run python -m wormspy.analysis.ria_bridge export <rec-NNN> --out <results_root> --run-id <id>`
+- `uv run python -m wormspy.analysis.ria_bridge join <rec-NNN> --head-angles … --roi-intensity …`
 
 Everything about the files, and how to read them without WormsPy, is in
 [recording-format.md](recording-format.md).

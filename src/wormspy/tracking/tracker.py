@@ -122,9 +122,12 @@ class Tracker:
                 world = (sample.x_um + dx, sample.y_um + dy)
         status = self._filter.update(frame.capture_ts, world)
         if self._log is not None:
+            polarity = getattr(self._estimator, "polarity", "dark")
+            est_label = (self._estimator.name if polarity == "dark"
+                         else f"{self._estimator.name}:{polarity}")
             self._log(frame_index=self._index_of(frame.device_frame_id),
                       source_channel=self._source, frame_id=frame.device_frame_id,
-                      capture_ts=frame.capture_ts, estimator=self._estimator.name,
+                      capture_ts=frame.capture_ts, estimator=est_label,
                       target_px=estimate.point_px, worm_um=world,
                       accepted=world is not None and self._filter.target == world,
                       status=status.value)
