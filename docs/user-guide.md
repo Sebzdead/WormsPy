@@ -331,32 +331,34 @@ For offline behaviour/Tierpsy export and RIA pipeline integration:
 Everything about the files, and how to read them without WormsPy, is in
 [recording-format.md](recording-format.md).
 
-### Reviewing a recording
+### Reviewing a recording & selecting analysis pipelines
 
 ```
 uv sync --extra analysis             # once: the reviewer reads recordings with pandas
-uv run wormspy-review <data_root>/2026-09-28_N2-3            # a session: opens rec-001
-uv run wormspy-review <data_root>/2026-09-28_N2-3/rec-002    # or one recording
+uv run wormspy-review                                        # opens rig.toml's data_root in the browser
+uv run wormspy-review <data_root>                            # browse all sessions in a folder
+uv run wormspy-review <data_root>/2026-09-28_N2-3/rec-002    # open one recording directly
 ```
 
-Without a path it asks for a folder (**File → Open recording…**, Ctrl/⌘+O). The review window
-plays a recording back with every source on the same frame:
+When opened on a `data_root` (or toggled via **Sessions**), the left **Session browser** lists
+every session and recording with its **Animal**, **Operator**, **Condition**, duration, and
+queued pipelines, with live text filtering:
 
-- **Feeds**: brightfield and fluorescence side by side, with the same LUTs, level handles and
-  histograms as the live view. Levels are set once, on the first frame, so brightness is
-  comparable across the recording. The tracked point is drawn where the tracker saw it (a dot
-  in the camera it tracked on, a ring where that maps to in the other camera).
-- **Worm position**: the worm's path on the plate in stage µm. Faint: the whole path; bright:
-  the part travelled so far; the green dot is the current frame and the open circle the start.
-  The path comes from accepted tracker estimates and falls back to the stage position where
-  there are none. Event markers are amber diamonds labelled where they happened; click one to
-  jump there. Drag to pan, scroll to zoom, and the "A" button in the corner refits it.
-- **Scrub bar**: the whole recording in seconds. Click or drag anywhere on it to scrub. The
-  bottom band shows tracking status (green tracking, amber target lost, grey joystick, red
-  stage limit), the thin band above it dropped frames (red), and amber lines the events.
-- **Transport and readout**: play/pause, frame and event stepping, speed (¼× to 8×), and the
-  current frame_index, time, tracking status and position. A red **DROPPED** chip marks a
-  zero-filled placeholder frame; an amber chip names any event on the current frame.
+- **Top row (Feeds):** brightfield and fluorescence side by side, with the same LUTs, level
+  handles, histograms, and tracked-point overlays as the live view.
+- **Bottom-left (World trajectory):** the worm's path on the plate in stage µm (upgrading
+  automatically to reconstructed Tierpsy world coordinates once run), with clickable amber event
+  markers.
+- **Bottom-right (Calcium stats):** sampled fluorescence pixel-intensity distribution and
+  summary metrics (`median`, `p99.9`, `SNR`, `sat %`, `z-moved %`), plus an **Over time** toggle
+  showing `p99.9` and `median` synced to the playhead.
+- **Send to Analysis Pipelines:** check the pipelines to queue for the open recording
+  (`RIA-Segmentation export`, `World trajectory / Tierpsy`, `Classical neuron segmentation`), and
+  use **Options…** next to any pipeline to configure its settings. Selections persist in
+  `<data_root>/analysis_queue.json`, and **Run this recording** / **Run all queued** executes them
+  in the background.
+- **Scrub bar & Transport:** frame-synced playback (`¼×` to `8×`), dropped-frame flags, and
+  event markers.
 
 Playback follows the recorded capture times; frames the display cannot keep up with are
 skipped rather than slowing playback down.

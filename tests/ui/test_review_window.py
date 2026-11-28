@@ -3,6 +3,7 @@
 import pytest
 from PySide6.QtCore import QPoint, QPointF, Qt
 
+from tests.analysis.test_catalog_and_pipelines import _make_session
 from tests.test_reader import _record
 from wormspy.ui.review_window import ReviewWindow, recordings_near
 
@@ -115,4 +116,79 @@ def test_recordings_near_a_recording_or_session_folder(recording, tmp_path):
     assert recordings_near(recording.parent) == ([recording], recording)
     with pytest.raises(FileNotFoundError, match="no WormsPy recordings"):
         recordings_near(tmp_path)
+
+
+def test_session_browser_filters_selects_and_runs_analysis_pipelines(qtbot, tmp_path):
+    data_root = tmp_path / "data"
+    rec1 = _make_session(data_root, "N2-alpha", "Alice", "on food", count=5)
+    rec2 = _make_session(data_root, "RIA-beta", "Bob", "starved", count=5)
+
+    win = ReviewWindow()
+    qtbot.addWidget(win)
+    win.resize(1500, 860)
+    win.open_root(data_root)
+    win.show()
+    qtbot.waitExposed(win)
+
+    assert win.browser.isVisibleTo(win)
+    assert len(win.browser.visible_entries()) == 2
+
+    # Filter narrows table to Bob / starved
+    win.browser.filter_edit.setText("Bob")
+    assert len(win.browser.visible_entries()) == 1
+    assert win.browser.visible_entries()[0].animal_id == "RIA-beta"
+
+    # Clicking row loads that recording into the viewer + calcium stats
+    win.browser.filter_edit.clear()
+    row_for_rec1 = next(i for i, e in enumerate(win.browser.visible_entries())
+                        if e.path.resolve() == rec1.resolve())
+    win.browser.table.selectRow(row_for_rec1)
+    assert win.recording.path.resolve() == rec1.resolve()
+    assert "gcamp:" in win.calcium_stats.summary_label.text()
+
+    # Toggle calcium stats view & verify playhead syncs
+    win.calcium_stats.set_mode("trace")
+    assert win.calcium_stats.stack.currentIndex() == 1
+    win.seek(3)
+    assert win.calcium_stats.playhead.value() == pytest.approx(win.data.time_s[3])
+
+    # Pipeline labels have no stray Qt '&' mnemonics and expose per-pipeline Options buttons
+    assert all("&" not in cb.text() for cb in win.browser.pipeline_checks.values())
+    assert set(win.browser.pipeline_option_buttons) == {
+        "ria_export",
+        "tierpsy_trajectory",
+        "classical_segmentation",
+    }
+    assert win.browser.run_current_button.text() == "Run this recording"
+    assert rec1.name in win.browser.target_label.text()
+    assert "N2-alpha" in win.browser.target_label.text()
+
+    # Select classical segmentation for rec1 and run current
+    win.browser.pipeline_checks["classical_segmentation"].setChecked(True)
+    assert "Neuron" in win.browser.table.item(row_for_rec1, 5).text()
+    assert win.browser.run_selected_button.text() == "Run all queued (1)"
+    win.browser.run_current()
+    qtbot.waitUntil(lambda: win.browser._runner is None, timeout=5000)
+    assert "[done]" in win.browser.pipeline_checks["classical_segmentation"].text()
+    assert (rec1 / "analysis" / "gcamp_segmentation.csv").exists()
+    assert rec2.exists()
+    win.close()
+
+
+def test_pipeline_options_dialog_round_trip(qapp, tmp_path) -> None:
+    from wormspy.analysis.pipelines import pipeline_by_id
+    from wormspy.ui.session_browser import _PipelineOptionsDialog
+
+    ria = pipeline_by_id("ria_export")
+    dlg = _PipelineOptionsDialog(
+        ria,
+        {"output_root": str(tmp_path), "run_id": "custom_run", "copy_tiff": True},
+        str(tmp_path),
+    )
+    assert dlg.values() == {
+        "output_root": str(tmp_path),
+        "run_id": "custom_run",
+        "copy_tiff": True,
+    }
+    dlg.close()
 

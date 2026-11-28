@@ -28,15 +28,18 @@ from PySide6.QtWidgets import (
     QMainWindow,
     QMessageBox,
     QPushButton,
+    QSplitter,
     QVBoxLayout,
     QWidget,
 )
 
 from wormspy.core.frames import Frame, FrameHub
 from wormspy.reader import Recording, open_recording
-from wormspy.review import PlaybackClock, ReviewData
+from wormspy.review import PlaybackClock, ReviewData, compute_calcium_stats
 from wormspy.ui import theme
+from wormspy.ui.calcium_stats import CalciumStatsWidget
 from wormspy.ui.live_view import LiveView
+from wormspy.ui.session_browser import SessionBrowser
 
 MARGIN = 14
 GAP = 12
@@ -266,6 +269,9 @@ class ReviewWindow(QMainWindow):
                                     "letter-spacing: -0.5px;")
         subtitle = QLabel("review")
         subtitle.setObjectName("muted")
+        self.sessions_button = QPushButton("Sessions")
+        self.sessions_button.setCheckable(True)
+        self.sessions_button.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.recording_box = QComboBox()
         self.recording_box.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.recording_box.activated.connect(
@@ -284,6 +290,7 @@ class ReviewWindow(QMainWindow):
         header.addWidget(self.wordmark)
         header.addWidget(subtitle, 0, Qt.AlignmentFlag.AlignBottom)
         header.addSpacing(14)
+        header.addWidget(self.sessions_button)
         header.addWidget(self.recording_box)
         header.addWidget(self.info_label)
         header.addWidget(self.warning_chip)
@@ -294,19 +301,19 @@ class ReviewWindow(QMainWindow):
         self.feeds.setSpacing(GAP)
         self.plot = PositionPlot()
         self.plot.event_clicked.connect(self.seek)
+        self.plot_title = QLabel("WORLD TRAJECTORY")
+        self.plot_title.setObjectName("feedTitle")
         plot_column = QVBoxLayout()
         plot_column.setSpacing(4)
-        plot_title = QLabel("WORM POSITION")
-        plot_title.setObjectName("feedTitle")
+        plot_column.addWidget(self.plot_title)
         plot_column.addWidget(self.plot)
-        plot_column.addWidget(plot_title)
-        plot_column.addStretch(1)
-        self._feed_row = QHBoxLayout()
-        self._feed_row.setSpacing(GAP)
-        self._feed_row.addStretch(1)
-        self._feed_row.addLayout(self.feeds)
-        self._feed_row.addLayout(plot_column)
-        self._feed_row.addStretch(1)
+        self.calcium_stats = CalciumStatsWidget()
+        self._bottom_row = QHBoxLayout()
+        self._bottom_row.setSpacing(GAP)
+        self._bottom_row.addStretch(1)
+        self._bottom_row.addLayout(plot_column)
+        self._bottom_row.addWidget(self.calcium_stats)
+        self._bottom_row.addStretch(1)
 
         self.play_button = QPushButton("▶  Play")
         self.play_button.setProperty("role", "primary")
@@ -360,17 +367,32 @@ class ReviewWindow(QMainWindow):
         self.scrub_bar = ScrubBar()
         self.scrub_bar.scrubbed.connect(self.scrub_to_time)
 
-        central = QWidget()
-        central.setObjectName("central")
-        self._column = QVBoxLayout(central)
+        self._viewer = QWidget()
+        self._column = QVBoxLayout(self._viewer)
         self._column.setContentsMargins(MARGIN, 8, MARGIN, MARGIN)
         self._column.setSpacing(8)
         self._column.addLayout(header)
-        self._column.addLayout(self._feed_row)
+        self._column.addLayout(self.feeds)
+        self._column.addLayout(self._bottom_row)
         self._column.addWidget(self.transport)
         self._column.addWidget(self.scrub_bar)
         self._column.addStretch(1)
-        self.setCentralWidget(central)
+
+        self.browser = SessionBrowser()
+        self.browser.setMinimumWidth(340)
+        self.browser.hide()
+        self.browser.recording_selected.connect(self.open_path)
+        self.browser.root_change_requested.connect(self.ask_root)
+        self.browser.pipeline_finished.connect(self._on_pipeline_finished)
+        self.sessions_button.toggled.connect(self._toggle_browser)
+
+        self.splitter = QSplitter(Qt.Orientation.Horizontal)
+        self.splitter.setObjectName("central")
+        self.splitter.addWidget(self.browser)
+        self.splitter.addWidget(self._viewer)
+        self.splitter.setStretchFactor(0, 0)
+        self.splitter.setStretchFactor(1, 1)
+        self.setCentralWidget(self.splitter)
         self._fitted_for = None
         self._actions()
 
@@ -407,6 +429,30 @@ class ReviewWindow(QMainWindow):
 
     # --- opening ----------------------------------------------------------------------------
 
+    def _toggle_browser(self, visible: bool) -> None:
+        self.browser.setVisible(bool(visible))
+        self._fitted_for = None
+        self._fit(force=True)
+
+    def ask_root(self) -> None:
+        folder = QFileDialog.getExistingDirectory(self, "Choose sessions root folder", "")
+        if folder:
+            self.open_root(Path(folder))
+
+    def open_root(self, root: Path) -> None:
+        """Scan `root` into the session browser, show it, and open the first recording."""
+        self.browser.set_root(root)
+        self.sessions_button.setChecked(True)
+        visible = self.browser.visible_entries()
+        if visible:
+            self.open_path(visible[0].path)
+
+    def _on_pipeline_finished(self, rec_dir: Path) -> None:
+        if self.recording is not None and self.recording.path.resolve() == rec_dir.resolve():
+            pos = self.position
+            self.open(self.recording.path)
+            self.seek(pos)
+
     def ask_open(self) -> None:
         start = str(self.recording.path.parent) if self.recording else ""
         folder = QFileDialog.getExistingDirectory(
@@ -437,6 +483,8 @@ class ReviewWindow(QMainWindow):
         self._describe(recording)
         self._build_views()
         self.plot.set_data(self.data)
+        self.calcium_stats.set_stats(compute_calcium_stats(recording, self.data))
+        self.browser.select_recording(path)
         self.scrub_bar.set_data(self.data)
         self._fitted_for = None
         self._fit()
@@ -498,6 +546,7 @@ class ReviewWindow(QMainWindow):
             view.set_tracked_point(None if overlay is None else overlay.point_px,
                                    mapped=overlay is not None and overlay.mapped)
         self.plot.show_position(position)
+        self.calcium_stats.show_time(time_s)
         self.scrub_bar.show_time(time_s)
         self._show_readout(position)
 
@@ -595,30 +644,37 @@ class ReviewWindow(QMainWindow):
         self._fit(force=True)
 
     def _fit(self, force: bool = False) -> None:
-        """The feeds at exactly their camera aspect and the position plot square, one row, as
-        large as the window allows."""
+        """Top row: Brightfield & Calcium feeds at camera aspect. Bottom row: World trajectory &
+        Calcium stats side by side."""
         if not self.views:
             return
-        central = self.centralWidget()
+        viewer_w = self._viewer.width()
+        viewer_h = self._viewer.height()
         aspects = [view.aspect for view in self.views]
-        key = (central.width(), central.height(), tuple(aspects))
+        key = (viewer_w, viewer_h, tuple(aspects), self.browser.isVisible())
         if key == self._fitted_for and not force:
             return
         self._fitted_for = key
         chrome = max(view.chrome_height() for view in self.views)
-        width = central.width() - 2 * MARGIN - GAP * len(self.views)
+        avail_w = max(320, viewer_w - 2 * MARGIN)
+        feeds_w = avail_w - GAP * max(len(self.views) - 1, 0)
         spacing = self._column.spacing()
         others = (self.wordmark.sizeHint().height() + self.transport.sizeHint().height()
-                  + self.scrub_bar.height() + chrome + 8 + MARGIN + 4 * spacing)
-        height_left = central.height() - others
-        # the plot is square, as tall as the feeds' images
-        h = max(60, min(width / (sum(aspects) + 1), height_left))
+                  + self.scrub_bar.height() + chrome + self.plot_title.sizeHint().height()
+                  + 8 + MARGIN + 5 * spacing)
+        avail_h = max(180, viewer_h - others)
+        top_h = max(60, min(feeds_w / sum(aspects), avail_h * 0.58))
+        bottom_h = max(120, avail_h - top_h)
         for view, aspect in zip(self.views, aspects, strict=True):
-            view.canvas.set_target(int(h * aspect), int(h))
-        self.plot.set_target(int(h), int(h))
+            view.canvas.set_target(int(top_h * aspect), int(top_h))
+        plot_w = min(int(bottom_h), int((avail_w - GAP) * 0.45))
+        stats_w = max(200, avail_w - GAP - plot_w)
+        self.plot.set_target(plot_w, int(bottom_h))
+        self.calcium_stats.set_target(stats_w, int(bottom_h))
 
     def closeEvent(self, event) -> None:
         self.pause()
+        self.browser.stop_runner()
         if self.recording is not None:
             self.recording.close()
         super().closeEvent(event)

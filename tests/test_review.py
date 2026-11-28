@@ -5,7 +5,7 @@ import pytest
 
 from tests.test_reader import _record
 from wormspy.reader import open_recording
-from wormspy.review import PlaybackClock, ReviewData
+from wormspy.review import PlaybackClock, ReviewData, compute_calcium_stats
 
 
 @pytest.fixture
@@ -69,3 +69,24 @@ def test_playback_follows_the_capture_times_and_skips_what_it_cannot_show(data):
     clock.start(2, now=200.0)
     assert clock.position(200.1) == 6
     assert clock.position(260.0) == 11                  # clamped to the last frame
+
+
+def test_compute_calcium_stats_returns_distribution_and_temporal_traces(data):
+    stats = compute_calcium_stats(data.recording, data)
+    assert stats is not None
+    assert stats.channel == "gcamp"
+    assert stats.sampled_frames == 11                   # 12 frames, 1 dropped
+    assert stats.dropped_pct == pytest.approx(100.0 / 12.0)
+    assert stats.median == pytest.approx(1055.0, abs=10.0)
+    assert stats.p999 >= stats.median
+    assert len(stats.sample_times_s) == 11
+    assert len(stats.hist_log_counts) == 128
+
+
+def test_compute_calcium_stats_handles_all_dropped_frames_without_warning(tmp_path):
+    rec = open_recording(_record(tmp_path, first=0, count=3, drop_clock={0, 1, 2}))
+    rd = ReviewData(rec)
+    stats = compute_calcium_stats(rec, rd)
+    assert stats is not None and stats.sampled_frames == 0
+    assert stats.dropped_pct == 100.0
+    rec.close()

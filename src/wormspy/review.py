@@ -15,9 +15,11 @@
 keep up skips frames instead of falling behind.
 """
 
+from contextlib import suppress
 from dataclasses import dataclass
 
 import numpy as np
+import pandas as pd
 
 from wormspy.reader import Recording
 
@@ -53,6 +55,18 @@ class ReviewData:
         worm = np.column_stack([_column(frames, "track_worm_x_um"),
                                 _column(frames, "track_worm_y_um")])
         worm[~accepted] = np.nan
+        traj_csv = recording.path / "analysis" / "tierpsy" / "trajectory.csv"
+        if traj_csv.exists():
+            with suppress(OSError, ValueError, KeyError):
+                traj = pd.read_csv(traj_csv).set_index("frame_index")
+                if {"worm_x_um", "worm_y_um"} <= set(traj.columns):
+                    aligned = traj.reindex(recording.index)
+                    recon = np.column_stack([
+                        aligned["worm_x_um"].to_numpy(dtype=float),
+                        aligned["worm_y_um"].to_numpy(dtype=float),
+                    ])
+                    missing = ~np.isfinite(worm).all(axis=1) & np.isfinite(recon).all(axis=1)
+                    worm[missing] = recon[missing]
         self.worm_um = worm
         known = np.isfinite(worm).all(axis=1)
         self.path_um = np.where(known[:, None], worm, self.stage_um)
@@ -166,3 +180,126 @@ def _fps(time_s: np.ndarray) -> float:
     if len(time_s) < 2 or time_s[-1] <= 0:
         return DEFAULT_FPS
     return (len(time_s) - 1) / time_s[-1]
+
+
+@dataclass(frozen=True)
+class CalciumStats:
+    channel: str
+    hist_edges: np.ndarray
+    hist_log_counts: np.ndarray
+    sample_times_s: np.ndarray
+    sample_median: np.ndarray
+    sample_p999: np.ndarray
+    median: float
+    p999: float
+    max_val: float
+    snr_proxy: float
+    saturated_pct: float
+    z_moved_pct: float
+    dropped_pct: float
+    dtype_max: float
+    sampled_frames: int
+
+
+def compute_calcium_stats(
+    recording: Recording,
+    data: ReviewData,
+    channel: str | None = None,
+    max_samples: int = 120,
+    bins: int = 128,
+) -> CalciumStats | None:
+    """Compute fast sampled pixel-intensity distribution and temporal stats for fluorescence."""
+    if channel is None:
+        fluo = [name for name, ch in recording.channels.items() if ch.role == "fluorescence"]
+        if not fluo:
+            return None
+        ref = recording.calibration.reference if recording.calibration else None
+        channel = ref if ref in fluo else fluo[0]
+    elif channel not in recording.channels:
+        return None
+
+    n = len(data)
+    dropped_pct = 100.0 * float(data.dropped.mean()) if n else 0.0
+    z_moved_pct = (
+        100.0 * float(recording.frames["z_moved"].fillna(0).astype(bool).mean())
+        if n and "z_moved" in recording.frames else 0.0
+    )
+
+    valid_pos = np.flatnonzero(~data.dropped)
+    if not len(valid_pos):
+        edges = np.linspace(0.0, 65535.0, bins + 1)
+        return CalciumStats(
+            channel=channel,
+            hist_edges=edges,
+            hist_log_counts=np.zeros(bins, dtype=np.float64),
+            sample_times_s=np.empty(0, dtype=np.float64),
+            sample_median=np.empty(0, dtype=np.float64),
+            sample_p999=np.empty(0, dtype=np.float64),
+            median=0.0, p999=0.0, max_val=0.0, snr_proxy=0.0,
+            saturated_pct=0.0, z_moved_pct=z_moved_pct, dropped_pct=dropped_pct,
+            dtype_max=65535.0, sampled_frames=0,
+        )
+
+    if len(valid_pos) > max_samples:
+        idx = np.linspace(0, len(valid_pos) - 1, max_samples, dtype=int)
+        chosen = valid_pos[idx]
+    else:
+        chosen = valid_pos
+
+    src = recording[channel]
+    stack = src.array() if src.role == "fluorescence" else None
+    sample0 = stack[int(chosen[0])] if stack is not None else src[int(data.frame_index[chosen[0]])]
+    dtype = sample0.dtype
+    dtype_max = float(np.iinfo(dtype).max) if np.issubdtype(dtype, np.integer) else 1.0
+    step_y = 4 if sample0.shape[0] >= 16 else 1
+    step_x = 4 if sample0.shape[1] >= 16 else 1
+
+    counts = np.zeros(bins, dtype=np.int64)
+    edges = np.linspace(0.0, dtype_max + 1.0, bins + 1)
+    sample_times = np.empty(len(chosen), dtype=np.float64)
+    sample_med = np.empty(len(chosen), dtype=np.float64)
+    sample_p999 = np.empty(len(chosen), dtype=np.float64)
+    all_samples: list[np.ndarray] = []
+    sat_pixels = 0
+    total_pixels = 0
+    obs_max = 0.0
+
+    for out_i, pos in enumerate(chosen):
+        img = stack[int(pos)] if stack is not None else src[int(data.frame_index[pos])]
+        sub = img[::step_y, ::step_x]
+        flat = sub.ravel()
+        all_samples.append(flat)
+        c, _ = np.histogram(flat, bins=edges)
+        counts += c
+        sample_times[out_i] = float(data.time_s[pos])
+        sample_med[out_i] = float(np.median(flat))
+        sample_p999[out_i] = float(np.percentile(flat, 99.9))
+        obs_max = max(obs_max, float(img.max()))
+        if np.issubdtype(dtype, np.integer):
+            sat_pixels += int(np.count_nonzero(sub >= dtype_max))
+        total_pixels += int(flat.size)
+
+    pooled = np.concatenate(all_samples)
+    med = float(np.median(pooled))
+    p999 = float(np.percentile(pooled, 99.9))
+    mad = float(np.median(np.abs(pooled.astype(np.float64) - med))) * 1.4826
+    snr_proxy = (p999 - med) / max(mad, 1.0)
+    sat_pct = 100.0 * sat_pixels / total_pixels if total_pixels else 0.0
+
+    return CalciumStats(
+        channel=channel,
+        hist_edges=edges,
+        hist_log_counts=np.log10(1.0 + counts),
+        sample_times_s=sample_times,
+        sample_median=sample_med,
+        sample_p999=sample_p999,
+        median=med,
+        p999=p999,
+        max_val=obs_max,
+        snr_proxy=snr_proxy,
+        saturated_pct=sat_pct,
+        z_moved_pct=z_moved_pct,
+        dropped_pct=dropped_pct,
+        dtype_max=dtype_max,
+        sampled_frames=len(chosen),
+    )
