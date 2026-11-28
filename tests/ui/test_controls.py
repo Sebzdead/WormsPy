@@ -166,3 +166,22 @@ def test_reset_gamepad_button_dispatches_command(qtbot):
     panel, _, effects = _panel(qtbot)
     _click(qtbot, panel.reset_gamepad_button)
     assert effects[-1] == X.ResetGamepad()
+
+
+def test_session_fields_follow_condition_animal_operator_notes_order(qtbot):
+    panel, _, _ = _panel(qtbot)
+    grid = panel._session_grid
+    assert grid.getItemPosition(grid.indexOf(panel.condition))[:2] == (1, 1)
+    assert grid.getItemPosition(grid.indexOf(panel.animal_id))[:2] == (1, 3)
+    assert grid.getItemPosition(grid.indexOf(panel.operator))[:2] == (2, 1)
+    assert grid.getItemPosition(grid.indexOf(panel.notes))[:2] == (2, 3)
+
+
+def test_focus_calibration_and_gamepad_are_vertically_grouped(qtbot):
+    panel, _, _ = _panel(qtbot)
+    panel.resize(1500, 220)
+    panel.show()
+    qtbot.waitExposed(panel)
+    assert panel.set_focus_button.y() < panel.focus_label.y()
+    assert panel.focus_label.y() < panel.calibrate_button.y()
+    assert panel.calibrate_button.y() < panel.reset_gamepad_button.y()

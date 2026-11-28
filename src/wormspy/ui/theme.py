@@ -114,6 +114,7 @@ QLabel#chip[tone="warn"] {{ background: {AMBER_BG}; color: {AMBER}; border-color
 /* The live readouts in the header: captioned tiles in one strip. */
 QFrame#readouts {{ background: {PANEL}; border: 1px solid {BORDER}; border-radius: 8px; }}
 QFrame#readoutDivider {{ background: {BORDER}; border: none; }}
+QFrame#sectionDivider {{ background: {BORDER}; border: none; }}
 QLabel#readoutCaption {{ color: {MUTED}; font-size: 9px; font-weight: 700;
                          letter-spacing: 1.2px; }}
 QLabel#readout {{ color: {TEXT}; }}

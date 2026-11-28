@@ -95,3 +95,9 @@ def test_the_window_can_shrink_back_after_being_large(qtbot):
 def test_the_window_fits_a_laptop_screen(qtbot):
     window, _ = _window(qtbot)
     assert window.minimumSizeHint().width() <= 1320     # smallest Mac laptop default: 1440
+
+
+def test_tracking_card_stays_compact_relative_to_session_card(qtbot):
+    window, _ = _window(qtbot, width=1600, height=1000)
+    assert window.controls.tracking_box.width() <= 250
+    assert window.controls.tracking_box.width() < window.controls.session_box.width()

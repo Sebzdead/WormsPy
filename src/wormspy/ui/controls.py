@@ -10,6 +10,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QComboBox,
     QFormLayout,
+    QFrame,
     QGridLayout,
     QGroupBox,
     QHBoxLayout,
@@ -66,28 +67,30 @@ class ControlPanel(QWidget):
 
         # session (and the live switch: nothing happens before the camera runs)
         session = QGroupBox("SESSION")
+        self.session_box = session
         grid = QGridLayout(session)
+        self._session_grid = grid
         grid.setHorizontalSpacing(8)
         grid.setVerticalSpacing(6)
         self.live_button = QPushButton("Start live")
         self.live_button.setProperty("role", "primary")
         self.live_button.clicked.connect(self._toggle_live)
-        self.animal_id, self.operator, self.condition = QLineEdit(), QLineEdit(), QLineEdit()
+        self.condition, self.animal_id, self.operator = QLineEdit(), QLineEdit(), QLineEdit()
         self.animal_id.setPlaceholderText("e.g. N2 #3")
         self.notes = QPlainTextEdit()
         self.notes.setFixedHeight(30)
         self.notes.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.notes.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        for field in (self.animal_id, self.operator, self.condition, self.notes):
+        for field in (self.condition, self.animal_id, self.operator, self.notes):
             field.setMinimumWidth(48)
         self.new_session_button = QPushButton("New session")
         self.new_session_button.clicked.connect(self._new_session)
         self.session_label = QLabel()
         self.session_label.setObjectName("muted")
         grid.addWidget(self.live_button, 0, 0, 1, 4)
-        for row, col, text, field in ((1, 0, "Animal", self.animal_id),
-                                      (1, 2, "Operator", self.operator),
-                                      (2, 0, "Condition", self.condition),
+        for row, col, text, field in ((1, 0, "Condition", self.condition),
+                                      (1, 2, "Animal", self.animal_id),
+                                      (2, 0, "Operator", self.operator),
                                       (2, 2, "Notes", self.notes)):
             label = QLabel(text)
             label.setObjectName("muted")
@@ -97,6 +100,10 @@ class ControlPanel(QWidget):
         grid.addWidget(self.session_label, 3, 2, 1, 2)
         grid.setColumnStretch(1, 1)
         grid.setColumnStretch(3, 1)
+        QWidget.setTabOrder(self.condition, self.animal_id)
+        QWidget.setTabOrder(self.animal_id, self.operator)
+        QWidget.setTabOrder(self.operator, self.notes)
+        QWidget.setTabOrder(self.notes, self.new_session_button)
         layout.addWidget(session, 3)
 
         # recording
@@ -140,8 +147,10 @@ class ControlPanel(QWidget):
 
         # tracking
         tracking = QGroupBox("TRACKING")
+        self.tracking_box = tracking
+        tracking.setMaximumWidth(250)
         trk = QFormLayout(tracking)
-        trk.setHorizontalSpacing(12)
+        trk.setHorizontalSpacing(8)
         trk.setVerticalSpacing(6)
         trk.setLabelAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
         self.estimator_box = QComboBox()
@@ -168,44 +177,49 @@ class ControlPanel(QWidget):
         trk.addRow(self._muted("Polarity"), self.polarity_box)
         trk.addRow(self.track_button)
         trk.addRow(self._muted("Status"), self.tracking_label)
-        layout.addWidget(tracking, 3)
+        layout.addWidget(tracking, 2)
 
         self.cameras = CameraCard(bridge, camera_labels)
         layout.addWidget(self.cameras, 3)
 
-        # focus and calibration: both about where the stage is
+        # focus and calibration: visually separated Focus, Calibration, and Gamepad sections
         stage = QGroupBox("FOCUS && CALIBRATION")
+        self.stage_box = stage
         stg = QVBoxLayout(stage)
         stg.setSpacing(6)
         focus_row = QHBoxLayout()
-        focus_row.setSpacing(8)
+        focus_row.setSpacing(6)
         self.set_focus_button = QPushButton("Set focus")
         self.set_focus_button.clicked.connect(lambda: bridge.dispatch(C.SetFocus()))
         self.return_focus_button = QPushButton("Return to focus")
         self.return_focus_button.clicked.connect(lambda: bridge.dispatch(C.ReturnToFocus()))
-        focus_row.addWidget(self.set_focus_button)
-        focus_row.addWidget(self.return_focus_button)
+        focus_row.addWidget(self.set_focus_button, 1)
+        focus_row.addWidget(self.return_focus_button, 1)
         self.focus_label = QLabel()
         self.focus_label.setObjectName("muted")
-        self.reset_gamepad_button = QPushButton("Reset gamepad")
-        self.reset_gamepad_button.setToolTip("Reinitialize the gamepad controller without restarting")
-        self.reset_gamepad_button.clicked.connect(lambda: bridge.dispatch(C.ResetGamepad()))
-        focus_status_row = QHBoxLayout()
-        focus_status_row.setSpacing(8)
-        focus_status_row.addWidget(self.focus_label, 1)
-        focus_status_row.addWidget(self.reset_gamepad_button)
+        stg.addLayout(focus_row)
+        stg.addWidget(self.focus_label)
+        stg.addWidget(self._divider())
+
+        calibration_row = QHBoxLayout()
+        calibration_row.setSpacing(8)
         self.calibrate_button = QPushButton("Calibrate stage")
         self.calibrate_button.setToolTip("Needs a bead or grid slide in focus under the objective")
         self.calibrate_button.clicked.connect(lambda: bridge.dispatch(C.Calibrate()))
         self.calibration_label = QLabel()
         self.calibration_label.setObjectName("muted")
-        stg.addLayout(focus_row)
-        stg.addLayout(focus_status_row)
-        calibration_row = QHBoxLayout()
-        calibration_row.setSpacing(10)
+        self.calibration_label.setAlignment(
+            Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter,
+        )
         calibration_row.addWidget(self.calibrate_button)
         calibration_row.addWidget(self.calibration_label, 1)
         stg.addLayout(calibration_row)
+        stg.addWidget(self._divider())
+
+        self.reset_gamepad_button = QPushButton("Reset gamepad")
+        self.reset_gamepad_button.setToolTip("Reinitialize the gamepad controller without restarting")
+        self.reset_gamepad_button.clicked.connect(lambda: bridge.dispatch(C.ResetGamepad()))
+        stg.addWidget(self.reset_gamepad_button)
         stg.addStretch(1)
         layout.addWidget(stage, 2)
 
@@ -215,6 +229,13 @@ class ControlPanel(QWidget):
 
         bridge.state_changed.connect(self.render)
         self.render(bridge.state)
+
+    @staticmethod
+    def _divider() -> QFrame:
+        line = QFrame()
+        line.setObjectName("sectionDivider")
+        line.setFixedHeight(1)
+        return line
 
     @staticmethod
     def _muted(text: str) -> QLabel:
@@ -337,3 +358,5 @@ class ControlPanel(QWidget):
         self.calibrate_button.setEnabled(s.mode is Mode.LIVE and not tracking_on and not busy)
         self.calibration_label.setText("Calibrating…" if busy else
                                        "Calibrated" if s.calibrated else "Not calibrated")
+        cal_colour = theme.AMBER if busy else theme.ACCENT if s.calibrated else theme.MUTED
+        self.calibration_label.setStyleSheet(f"color: {cal_colour};")
